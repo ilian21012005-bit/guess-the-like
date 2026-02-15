@@ -364,11 +364,11 @@ io.on('connection', (socket) => {
     const currentRound = rounds[currentIndex];
     const ownerId = currentRound.owner_id;
     const isSolo = room.players.length === 1;
-    // Phase test : tout le monde peut voter (y compris le propriétaire du like).
+    if (!isSolo && socket.id === room.players.find(p => p.playerId === ownerId)?.socketId) return;
     if (votes[socket.id] !== undefined) return;
     const responseTime = room.gameState.roundStartTime ? Date.now() - room.gameState.roundStartTime : 0;
     votes[socket.id] = { targetPlayerId, responseTime };
-    const votersExpected = room.players.length;
+    const votersExpected = isSolo ? 1 : room.players.length - 1;
     if (Object.keys(votes).length < votersExpected) return;
     const BASE_POINTS = 1000;
     const STREAK_MULT = 0.2;

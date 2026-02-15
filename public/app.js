@@ -259,21 +259,25 @@
           showIframeFallback();
         });
     }
-    // Phase test : tout le monde peut voter, y compris pour soi (propriétaire du like).
-    const canVote = true;
-    $('wait-owner').classList.add('hidden');
+    const isOwner = myPlayerId === ownerId;
+    const isSolo = (players || []).length === 1;
+    const canVote = isSolo || !isOwner;
+    $('wait-owner').classList.toggle('hidden', canVote);
     const container = $('vote-buttons');
-    container.classList.remove('hidden');
-    container.innerHTML = (players || []).map(pl => `
-      <button type="button" data-player-id="${escapeAttr(pl.playerId)}">${escapeHtml(pl.username)}</button>
-    `).join('');
-    container.querySelectorAll('button').forEach(btn => {
-      btn.onclick = () => {
-        socket.emit('submit_vote', { code: roomCode, targetPlayerId: btn.dataset.playerId, roundIndex });
-        container.innerHTML = '';
-        container.classList.add('hidden');
-      };
-    });
+    container.classList.toggle('hidden', !canVote);
+    if (canVote) {
+      const list = isSolo ? (players || []) : (players || []).filter(p => p.playerId !== ownerId);
+      container.innerHTML = list.map(pl => `
+        <button type="button" data-player-id="${escapeAttr(pl.playerId)}">${escapeHtml(pl.username)}</button>
+      `).join('');
+      container.querySelectorAll('button').forEach(btn => {
+        btn.onclick = () => {
+          socket.emit('submit_vote', { code: roomCode, targetPlayerId: btn.dataset.playerId, roundIndex });
+          container.innerHTML = '';
+          container.classList.add('hidden');
+        };
+      });
+    }
     const scoresEl = $('scores-inline');
     if (scoresEl) scoresEl.innerHTML = (players || []).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5).map((pl, i) => `${i + 1}. ${pl.username} ${pl.score || 0}`).join(' · ');
     show('screen-game');

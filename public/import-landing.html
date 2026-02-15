@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Import des likes — Guess The Like</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 2rem auto; padding: 0 1rem; text-align: center; }
+    .status { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; }
+    .status.waiting { background: #f0f0f0; color: #555; }
+    .status.success { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    h1 { font-size: 1.25rem; }
+  </style>
+</head>
+<body>
+  <h1>Guess The Like</h1>
+  <p id="msg" class="status waiting">En attente des liens depuis TikTok…</p>
+  <p id="detail"></p>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var token = params.get('token');
+      var origin = window.location.origin;
+      var msgEl = document.getElementById('msg');
+      var detailEl = document.getElementById('detail');
+
+      function setStatus(className, text, detail) {
+        msgEl.className = 'status ' + className;
+        msgEl.textContent = text;
+        detailEl.textContent = detail || '';
+      }
+
+      if (!token) {
+        setStatus('error', 'Lien invalide', 'Il manque le token. Utilise le lien généré dans le lobby.');
+        return;
+      }
+
+      window.addEventListener('message', function (e) {
+        if (!e.origin.includes('tiktok.com')) return;
+        if (!e.data || e.data.type !== 'tiktok-likes' || !Array.isArray(e.data.urls)) return;
+        msgEl.className = 'status waiting';
+        msgEl.textContent = 'Envoi en cours…';
+
+        fetch(origin + '/api/import-likes-from-bookmarklet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token, urls: e.data.urls })
+        })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, json: j }; }); })
+          .then(function (result) {
+            if (result.ok && result.json.ok) {
+              setStatus('success', '✓ ' + (result.json.count || 0) + ' likes envoyés au jeu.', 'Tu peux fermer cette fenêtre et revenir au lobby.');
+            } else {
+              setStatus('error', result.json.error || 'Erreur', '');
+            }
+          })
+          .catch(function () {
+            setStatus('error', 'Erreur de connexion', 'Vérifie que la page du jeu est bien ouverte sur ' + origin);
+          });
+      });
+
+      setTimeout(function () {
+        if (msgEl.className.includes('waiting') && msgEl.textContent.includes('En attente')) {
+          setStatus('error', 'Aucune donnée reçue', 'Ouvre ta page « J\'aime » sur TikTok, puis clique sur le favori « Envoyer mes likes » (pas ici).');
+        }
+      }, 8000);
+    })();
+  </script>
+</body>
+</html>

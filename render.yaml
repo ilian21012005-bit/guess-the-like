@@ -1,0 +1,12 @@
+# Déploiement Render — Guess The Like
+# https://dashboard.render.com → New → Blueprint → Connect repo → ce fichier sera détecté
+
+services:
+  - type: web
+    name: guess-the-like
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20

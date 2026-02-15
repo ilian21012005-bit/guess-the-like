@@ -1,0 +1,113 @@
+const { Pool } = require('pg');
+
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : null;
+
+async function query(text, params) {
+  if (!pool) return null;
+  try {
+    return await pool.query(text, params);
+  } catch (e) {
+    console.error('DB error', e.message);
+    return null;
+  }
+}
+
+async function getOrCreatePlayer(username, tiktokUsername = null, avatarUrl = null) {
+  const existing = await query(
+    'SELECT id, username, tiktok_username, avatar_url FROM players WHERE LOWER(TRIM(tiktok_username)) = LOWER(TRIM($1)) OR LOWER(TRIM(username)) = LOWER(TRIM($2)) LIMIT 1',
+    [tiktokUsername || username, username]
+  );
+  if (existing && existing.rows.length) return existing.rows[0];
+
+  const insert = await query(
+    'INSERT INTO players (username, tiktok_username, avatar_url) VALUES ($1, $2, $3) RETURNING id, username, tiktok_username, avatar_url',
+    [username.trim(), (tiktokUsername || username).trim().replace(/^@/, ''), avatarUrl]
+  );
+  return insert && insert.rows[0] ? insert.rows[0] : null;
+}
+
+async function createRoom(code) {
+  const res = await query('INSERT INTO rooms (code, status) VALUES ($1, $2) RETURNING id, code', [code, 'lobby']);
+  return res && res.rows[0] ? res.rows[0] : null;
+}
+
+async function getRoomByCode(code) {
+  const res = await query('SELECT id, code, host_socket_id, status FROM rooms WHERE code = $1', [code]);
+  return res && res.rows[0] ? res.rows[0] : null;
+}
+
+async function addPlayerToRoom(roomId, playerId, socketId) {
+  await query(
+    'INSERT INTO room_players (room_id, player_id, socket_id) VALUES ($1, $2, $3) ON CONFLICT (room_id, player_id) DO UPDATE SET socket_id = $3',
+    [roomId, playerId, socketId]
+  );
+}
+
+async function saveLikes(playerId, videoUrls) {
+  if (!pool || !playerId || !videoUrls.length) return 0;
+  let inserted = 0;
+  for (const url of videoUrls) {
+    const idMatch = url.match(/\/video\/(\d+)/);
+    const videoIdTiktok = idMatch ? idMatch[1] : null;
+    const res = await query(
+      'INSERT INTO user_likes (player_id, video_url, video_id_tiktok) VALUES ($1, $2, $3) ON CONFLICT (video_id_tiktok) DO NOTHING RETURNING id',
+      [playerId, url, videoIdTiktok]
+    );
+    if (res && res.rows.length) inserted++;
+  }
+  return inserted;
+}
+
+/**
+ * Récupère jusqu'à 50 vidéos pour une partie : jamais jouées dans cette room en priorité, sinon complète avec les moins jouées.
+ */
+async function get50VideosForRoom(roomCode, playerIds) {
+  if (!pool || !playerIds.length) return [];
+  const placeholders = playerIds.map((_, i) => `$${i + 1}`).join(',');
+  const params = [...playerIds, roomCode];
+  let res = await query(
+    `SELECT ul.id, ul.video_url, ul.player_id FROM user_likes ul
+     WHERE ul.player_id IN (${placeholders})
+     AND NOT EXISTS (SELECT 1 FROM play_history ph WHERE ph.room_code = $${playerIds.length + 1} AND ph.video_id = ul.id)
+     ORDER BY RANDOM() LIMIT 50`,
+    params
+  );
+  let list = res && res.rows ? res.rows : [];
+  if (list.length < 50) {
+    const fallback = await query(
+      `SELECT ul.id, ul.video_url, ul.player_id FROM user_likes ul
+       WHERE ul.player_id IN (${placeholders})
+       ORDER BY ul.play_count ASC, ul.last_played_at ASC NULLS FIRST
+       LIMIT 100`
+    );
+    const existingIds = new Set(list.map(r => r.id));
+    const extra = (fallback && fallback.rows ? fallback.rows : []).filter(r => !existingIds.has(r.id));
+    list = [...list, ...extra].slice(0, 50);
+  }
+  return list.map(r => ({ id: r.id, video_url: r.video_url, owner_id: r.player_id }));
+}
+
+async function recordPlayedVideo(roomCode, videoId) {
+  await query('INSERT INTO play_history (room_code, video_id) VALUES ($1, $2)', [roomCode, videoId]);
+  await query('UPDATE user_likes SET play_count = play_count + 1, last_played_at = NOW() WHERE id = $1', [videoId]);
+}
+
+async function getPlayerById(playerId) {
+  const res = await query('SELECT id, username, tiktok_username, avatar_url FROM players WHERE id = $1', [playerId]);
+  return res && res.rows[0] ? res.rows[0] : null;
+}
+
+module.exports = {
+  pool,
+  query,
+  getOrCreatePlayer,
+  createRoom,
+  getRoomByCode,
+  addPlayerToRoom,
+  saveLikes,
+  get50VideosForRoom,
+  recordPlayedVideo,
+  getPlayerById,
+};

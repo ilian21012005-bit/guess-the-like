@@ -1,0 +1,18 @@
+{
+  "name": "guess-the-like",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "db:init": "node scripts/init-db.js",
+    "setup-session": "node scripts/setup-tiktok-session.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "pg": "^8.18.0",
+    "playwright": "^1.58.2",
+    "socket.io": "^4.8.3"
+  }
+}

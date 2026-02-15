@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Guess The Like</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='24' font-size='24'>👍</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Écran d'accueil -->
+    <section id="screen-home" class="screen">
+      <h1>Guess The Like</h1>
+      <p class="subtitle">Devine qui a liké ce TikTok</p>
+      <div class="card">
+        <label>Pseudo</label>
+        <input type="text" id="input-username" placeholder="Ton pseudo" maxlength="50" />
+        <label>@ TikTok (optionnel)</label>
+        <input type="text" id="input-tiktok" placeholder="@ton_compte" maxlength="50" />
+        <div class="buttons">
+          <button id="btn-create">Créer une partie</button>
+          <hr />
+          <label>Rejoindre avec le code</label>
+          <input type="text" id="input-code" placeholder="ABC123" maxlength="8" class="code-input" />
+          <button id="btn-join">Rejoindre</button>
+        </div>
+      </div>
+      <p id="home-error" class="error"></p>
+    </section>
+
+    <!-- Lobby -->
+    <section id="screen-lobby" class="screen hidden">
+      <h2>Salon <span id="lobby-code"></span></h2>
+      <p class="instruction">
+        Suis les 3 étapes ci-dessous pour envoyer tes likes au jeu.<br />
+        Solo (ce PC) : tu peux utiliser <strong>Prêt</strong> si Chrome (<code>CHROME_USER_DATA</code>), <strong>ferme Chrome</strong> avant de cliquer sur Prêt ; une fenêtre Chrome s’ouvrira le temps de la récupération.<br />
+        Si TikTok bloque (message « connexion requise »), utilise l’<strong>import manuel</strong> ci‑dessous.
+      </p>
+      <div class="steps-box">
+        <p class="steps-title">Récupérer mes likes (3 étapes)</p>
+        <ol class="steps-list">
+          <li>Ouvre <a href="https://www.tiktok.com" target="_blank" rel="noopener">TikTok</a>, va sur <strong>ton profil</strong> puis l’onglet <strong>J’aime</strong>. Déroule la page pour charger des vidéos.</li>
+          <li>Sur la page TikTok, appuie sur <strong>F12</strong> (ou clic droit → Inspecter), onglet <strong>Console</strong>. Clique sur <strong>« Copier le script »</strong> ci-dessous, puis dans la console : <strong>Ctrl+V</strong> et <strong>Entrée</strong>. Une alerte indiquera combien de liens ont été copiés.</li>
+          <li>Reviens ici, <strong>colle</strong> (Ctrl+V) dans la zone ci-dessous et clique <strong>Importer</strong>.</li>
+        </ol>
+        <button type="button" id="btn-copy-script">Copier le script</button>
+        <p id="copy-script-feedback" class="copy-feedback hidden"></p>
+        <label for="import-links" class="import-label">Colle ici les liens (Ctrl+V) puis clique Importer :</label>
+        <textarea id="import-links" placeholder="Colle les liens copiés depuis TikTok…" rows="5"></textarea>
+        <button id="btn-import-links">Importer</button>
+      </div>
+      <ul id="lobby-players"></ul>
+      <button id="btn-ready" class="secondary">Prêt (solo, Chrome débogage)</button>
+      <p id="lobby-status" class="status"></p>
+      <button id="btn-start" class="host-only hidden">Lancer la partie</button>
+      <p id="lobby-error" class="error"></p>
+    </section>
+
+    <!-- Jeu : décompte -->
+    <section id="screen-countdown" class="screen hidden">
+      <div id="countdown-number">3</div>
+    </section>
+
+    <!-- Jeu : vidéo + vote -->
+    <section id="screen-game" class="screen hidden">
+      <div class="round-info">Round <span id="round-num">1</span> / <span id="round-total">50</span></div>
+      <div id="video-container">
+        <p id="video-loading" class="video-loading hidden">Chargement de la vidéo…</p>
+        <video id="tiktok-video" class="native-video" playsinline loop muted autoplay preload="auto" referrerpolicy="no-referrer" controlslist="nodownload noplaybackrate"></video>
+        <div class="video-crop video-fallback-embed">
+          <iframe id="tiktok-embed" title="TikTok"></iframe>
+        </div>
+        <a id="video-open-tiktok" href="#" target="_blank" rel="noopener" class="video-fallback">Ouvrir sur TikTok</a>
+      </div>
+      <div id="vote-area">
+        <p id="wait-owner" class="hidden">C'est ton like ! Attends que les autres votent.</p>
+        <div id="vote-buttons" class="hidden"></div>
+      </div>
+      <div class="scores-inline" id="scores-inline"></div>
+    </section>
+
+    <!-- Révélation (roulette) -->
+    <section id="screen-reveal" class="screen hidden">
+      <p class="reveal-label">Qui a liké ?</p>
+      <div id="roulette-container">
+        <img id="roulette-avatar" src="" alt="" />
+        <p id="roulette-name"></p>
+      </div>
+      <div id="reveal-scores"></div>
+      <div id="reveal-next-area">
+        <button type="button" id="btn-next-round" class="btn-next-round host-only hidden">Round suivant</button>
+        <p id="reveal-wait-host" class="reveal-wait-host hidden">En attente de l'hôte pour le round suivant…</p>
+      </div>
+    </section>
+
+    <!-- Fin de partie -->
+    <section id="screen-gameover" class="screen hidden">
+      <h2>Podium</h2>
+      <ol id="podium-list"></ol>
+      <button id="btn-lobby">Retour au lobby</button>
+    </section>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

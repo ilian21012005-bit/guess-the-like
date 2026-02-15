@@ -19,6 +19,12 @@
       <div class="card">
         <label>Pseudo</label>
         <input type="text" id="input-username" placeholder="Ton pseudo" maxlength="50" />
+        <label>Photo de profil (optionnel)</label>
+        <div class="avatar-pick">
+          <input type="url" id="input-avatar" placeholder="https://... ou choisis une image" />
+          <label class="btn-avatar-file"><input type="file" id="input-avatar-file" accept="image/*" hidden /> Choisir une image</label>
+        </div>
+        <img id="avatar-preview" class="avatar-preview hidden" src="" alt="Aperçu" />
         <label>@ TikTok (optionnel)</label>
         <input type="text" id="input-tiktok" placeholder="@ton_compte" maxlength="50" />
         <div class="buttons">
@@ -71,6 +77,7 @@
       <div id="video-container">
         <p id="video-loading" class="video-loading hidden">Chargement de la vidéo…</p>
         <video id="tiktok-video" class="native-video" playsinline loop muted autoplay preload="auto" referrerpolicy="no-referrer" controlslist="nodownload noplaybackrate"></video>
+        <button type="button" id="btn-volume" class="btn-volume" title="Son on/off" aria-label="Volume">🔇</button>
         <div class="video-crop video-fallback-embed">
           <iframe id="tiktok-embed" title="TikTok"></iframe>
         </div>

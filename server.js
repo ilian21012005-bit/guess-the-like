@@ -135,10 +135,11 @@ function getPlayerListForRoom(room) {
 
 io.on('connection', (socket) => {
   socket.on('create_room', async (data, ack) => {
-    const { username, tiktokUsername } = data || {};
+    const { username, tiktokUsername, avatarUrl } = data || {};
     if (!username?.trim()) return ack?.({ error: 'Username required' });
     const player = db.pool ? await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) : { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
     const playerId = player?.id ?? socket.id;
+    const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
     let code = generateCode();
     while (rooms.has(code)) code = generateCode();
     let roomId = null;
@@ -150,7 +151,7 @@ io.on('connection', (socket) => {
       roomId,
       code,
       hostSocketId: socket.id,
-      players: [{ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: player?.avatar_url ?? null, isReady: false, score: 0, streak: 0 }],
+      players: [{ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: avatar, isReady: false, score: 0, streak: 0 }],
       status: 'lobby',
       gameState: null,
     };
@@ -161,7 +162,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join_room', async (data, ack) => {
-    const { code, username, tiktokUsername } = data || {};
+    const { code, username, tiktokUsername, avatarUrl } = data || {};
     const roomCode = (code || '').toUpperCase().trim();
     const room = getRoomByCode(roomCode);
     if (!room) return ack?.({ error: 'Room not found' });
@@ -169,8 +170,9 @@ io.on('connection', (socket) => {
     if (!username?.trim()) return ack?.({ error: 'Username required' });
     const player = db.pool ? await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) : { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
     const playerId = player?.id ?? socket.id;
+    const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
     if (room.players.some(p => p.playerId === playerId || p.socketId === socket.id)) return ack?.({ error: 'Already in room' });
-    room.players.push({ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: player?.avatar_url ?? null, isReady: false, score: 0, streak: 0 });
+    room.players.push({ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: avatar, isReady: false, score: 0, streak: 0 });
     if (db.pool && room.roomId) await db.addPlayerToRoom(room.roomId, playerId, socket.id);
     socket.join(roomCode);
     io.to(roomCode).emit('room_updated', { players: getPlayerListForRoom(room) });
@@ -290,11 +292,15 @@ io.on('connection', (socket) => {
     if (room.hostSocketId !== socket.id) return ack?.({ error: 'Only host can start' });
     if (room.status !== 'lobby') return ack?.({ error: 'Game already started' });
     const playerIds = room.players.map(p => p.playerId);
+    if (!roomPlayed.has(roomCode)) roomPlayed.set(roomCode, new Set());
+    const played = roomPlayed.get(roomCode);
     let rounds = [];
-    if (db.pool) rounds = await db.get50VideosForRoom(roomCode, playerIds);
+    if (db.pool) {
+      const fromDb = await db.get50VideosForRoom(roomCode, playerIds);
+      rounds = fromDb.filter(r => !played.has(r.id));
+    }
     if (!rounds.length) {
       const memLikes = roomLikes.get((roomCode || '').toUpperCase()) || {};
-      const played = roomPlayed.get(roomCode) || new Set();
       let all = [];
       for (const pid of playerIds) {
         const arr = memLikes[pid] || [];
@@ -312,7 +318,6 @@ io.on('connection', (socket) => {
       console.log('[start_game] Aucune vidéo. roomCode=%s playerIds=%s roomLikes total=%s', roomCode, playerIds.length, total);
       return ack?.({ error: 'Aucune vidéo. Clique sur « Prêt » (likes en public sur TikTok), attends le message de succès, puis relance.' });
     }
-    if (!roomPlayed.has(roomCode)) roomPlayed.set(roomCode, new Set());
     room.status = 'playing';
     room.gameState = {
       rounds,

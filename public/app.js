@@ -266,57 +266,32 @@
     if (iframeWrap) iframeWrap.style.display = 'none';
     if (loadingEl) { loadingEl.textContent = 'Extraction de la vidéo en cours…'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
     if (linkOpen) linkOpen.style.display = 'none';
-
-    if (videoId && iframe) {
-      iframe.src = 'https://www.tiktok.com/embed/v2/' + videoId + '?lang=fr-FR&autoplay=1';
-    } else if (iframe) {
-      iframe.src = '';
-    }
-
-    var loadingSafety = null;
-    var proxyFallbackTimer = null;
-    let loadingSafetyDone = false;
-    function showIframeFallback() {
-      if (loadingSafetyDone) return;
-      loadingSafetyDone = true;
-      if (loadingSafety) { clearTimeout(loadingSafety); loadingSafety = null; }
-      if (proxyFallbackTimer) { clearTimeout(proxyFallbackTimer); proxyFallbackTimer = null; }
-      if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
-      if (videoEl) { videoEl.src = ''; videoEl.style.display = 'none'; videoEl.onerror = null; }
-      if (btnVolume) btnVolume.style.display = 'none';
-      if (iframeWrap && videoId) iframeWrap.style.display = 'block';
-      if (linkOpen && videoUrl) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
-    }
+    if (iframe) iframe.src = '';
 
     if (!videoUrl) {
       if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
       if (linkOpen) { linkOpen.href = '#'; linkOpen.style.display = 'none'; }
     } else {
-      if (linkOpen) { linkOpen.href = videoUrl; }
-      loadingSafety = setTimeout(function () {
-        loadingSafety = null;
-        if (!loadingSafetyDone) showIframeFallback();
-      }, 12000);
+      if (linkOpen) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
       if (videoEl) {
+        const loadStartMs = performance.now();
         videoEl.onloadeddata = function () {
-          if (loadingSafety) { clearTimeout(loadingSafety); loadingSafety = null; }
-          if (proxyFallbackTimer) { clearTimeout(proxyFallbackTimer); proxyFallbackTimer = null; }
-          loadingSafetyDone = true;
+          const loadEndMs = performance.now();
+          const durationMs = Math.round(loadEndMs - loadStartMs);
+          console.log('[MP4] Vidéo prête en ' + durationMs + ' ms (round ' + (roundIndex + 1) + ')');
           if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
           if (iframeWrap) iframeWrap.style.display = 'none';
           videoEl.style.display = 'block';
           if (btnVolume) btnVolume.style.display = 'flex';
           videoEl.play().catch(() => {});
         };
-        videoEl.onerror = function () { showIframeFallback(); };
+        videoEl.onerror = function () {
+          const durationMs = Math.round(performance.now() - loadStartMs);
+          console.warn('[MP4] Échec chargement après ' + durationMs + ' ms (round ' + (roundIndex + 1) + ')');
+          if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+        };
         videoEl.src = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
         videoEl.load();
-        proxyFallbackTimer = setTimeout(function () {
-          proxyFallbackTimer = null;
-          if (!loadingSafetyDone && videoEl.readyState < 2) showIframeFallback();
-        }, 6000);
-      } else {
-        showIframeFallback();
       }
     }
     const isOwner = myPlayerId === ownerId;

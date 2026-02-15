@@ -88,12 +88,15 @@ app.get('/api/tiktok-video', async (req, res) => {
   if (!pageUrl || typeof pageUrl !== 'string') return res.status(400).end();
   const allowed = /^https?:\/\/([a-z0-9.-]+\.)?(tiktok\.com|vm\.tiktok\.com)\//i;
   if (!allowed.test(pageUrl.trim())) return res.status(403).end();
+  const t0 = Date.now();
   try {
     const result = await getTikTokMp4Url(pageUrl.trim());
+    const tExtract = Date.now() - t0;
+    console.log('[tiktok-video] extraction MP4: ' + tExtract + ' ms' + (result.error ? ' (échec: ' + result.error + ')' : ''));
     if (result.error || !result.url) return res.status(404).end();
     const mp4Url = result.url.startsWith('//') ? 'https:' + result.url : result.url;
     const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), 25000);
+    const to = setTimeout(() => controller.abort(), 60000);
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Referer': 'https://www.tiktok.com/',
@@ -103,6 +106,8 @@ app.get('/api/tiktok-video', async (req, res) => {
     if (range) headers['Range'] = range;
     const r = await fetch(mp4Url, { headers, redirect: 'follow', signal: controller.signal });
     clearTimeout(to);
+    const tTotal = Date.now() - t0;
+    console.log('[tiktok-video] stream démarré: ' + tTotal + ' ms total (extraction: ' + tExtract + ' ms)');
     if (!r.ok) return res.status(r.status).end();
     const ct = r.headers.get('Content-Type') || 'video/mp4';
     res.setHeader('Content-Type', ct);

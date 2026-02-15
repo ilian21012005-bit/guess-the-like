@@ -225,6 +225,7 @@ async function getTikTokMp4Url(videoPageUrl) {
   const url = String(videoPageUrl || '').trim();
   if (!url.includes('tiktok.com') || !url.includes('/video/')) return { error: 'URL TikTok invalide' };
   const videoId = getVideoIdFromUrl(url);
+  const totalStart = Date.now();
 
   const tryFetch = async (targetUrl) => {
     const controller = new AbortController();
@@ -241,9 +242,12 @@ async function getTikTokMp4Url(videoPageUrl) {
   };
 
   if (videoId) {
+    const tEmbed0 = Date.now();
     const embedUrl = 'https://www.tiktok.com/embed/v2/' + videoId;
     let embedUrlResult = await tryFetch(embedUrl);
+    console.log('[scraper] fetch embed: ' + (Date.now() - tEmbed0) + ' ms' + (embedUrlResult ? ' (OK)' : ' (échec)'));
     if (embedUrlResult && (embedUrlResult.startsWith('http') || embedUrlResult.startsWith('//'))) {
+      console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (embed)');
       return { url: embedUrlResult.startsWith('//') ? 'https:' + embedUrlResult : embedUrlResult };
     }
   }
@@ -253,13 +257,16 @@ async function getTikTokMp4Url(videoPageUrl) {
     videoUrl = await tryFetch(embedUrl);
   }
   if (videoUrl && (videoUrl.startsWith('http') || videoUrl.startsWith('//'))) {
+    console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (page)');
     return { url: videoUrl.startsWith('//') ? 'https:' + videoUrl : videoUrl };
   }
 
   // Playwright : interception réseau pour récupérer l’URL .mp4
+  const tPw0 = Date.now();
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
+    console.log('[scraper] Playwright launch: ' + (Date.now() - tPw0) + ' ms');
     const context = await browser.newContext({
       userAgent: USER_AGENT,
       viewport: { width: 390, height: 844 },
@@ -308,11 +315,14 @@ async function getTikTokMp4Url(videoPageUrl) {
     await browser.close();
 
     if (found && (found.startsWith('http') || found.startsWith('//'))) {
+      console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (Playwright)');
       return { url: found.startsWith('//') ? 'https:' + found : found };
     }
+    console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (non trouvée)');
     return { error: 'URL vidéo non trouvée' };
   } catch (err) {
     try { if (browser) await browser.close(); } catch (_) {}
+    console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (erreur: ' + (err.message || err) + ')');
     return { error: err.message || 'EXTRACT_ERROR' };
   }
 }

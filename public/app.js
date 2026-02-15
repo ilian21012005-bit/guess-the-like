@@ -6,7 +6,29 @@
   let players = [];
   let avatarDataUrl = '';
 
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('room')) {
+    const codeInput = document.getElementById('input-code');
+    if (codeInput) { codeInput.value = params.get('room').toUpperCase().slice(0, 8); codeInput.focus(); }
+  }
+
+  socket.on('connect', () => {
+    const banner = document.getElementById('reconnect-banner');
+    if (banner) banner.classList.add('hidden');
+  });
+  socket.on('disconnect', () => {
+    const banner = document.getElementById('reconnect-banner');
+    if (banner) banner.classList.remove('hidden');
+  });
+
   const $ = (id) => document.getElementById(id);
+  function voteKeyHandler(e) {
+    if (e.key < '1' || e.key > '9') return;
+    const container = $('vote-buttons');
+    if (!container || container.classList.contains('hidden')) return;
+    const btn = container.querySelector('.vote-btn[data-key="' + e.key + '"]');
+    if (btn) btn.click();
+  }
   const show = (id) => {
     document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
     const el = $(id);
@@ -86,6 +108,8 @@
 
   function showLobby() {
     $('lobby-code').textContent = roomCode;
+    const opts = $('lobby-options');
+    if (opts) opts.classList.toggle('hidden', !isHost);
     $('lobby-players').innerHTML = (players || []).map(p => `
       <li>
         <span>${escapeHtml(p.username)}</span>
@@ -106,6 +130,14 @@
     if (document.getElementById('screen-lobby') && !document.getElementById('screen-lobby').classList.contains('hidden')) {
       showLobby();
     }
+  });
+
+  $('btn-copy-code').addEventListener('click', () => {
+    if (!roomCode) return;
+    navigator.clipboard.writeText(roomCode).then(() => {
+      const btn = $('btn-copy-code');
+      if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = '📋 Copier'; }, 2000); }
+    });
   });
 
   const TIKTOK_SCRIPT = [
@@ -176,7 +208,8 @@
 
   $('btn-start').addEventListener('click', () => {
     setError('lobby-error', '');
-    socket.emit('start_game', { code: roomCode }, (res) => {
+    const totalRounds = parseInt($('select-rounds')?.value, 10) || 50;
+    socket.emit('start_game', { code: roomCode, totalRounds }, (res) => {
       if (res?.error) {
         setError('lobby-error', res.error);
         return;
@@ -230,9 +263,15 @@
 
     if (videoEl) { videoEl.src = ''; videoEl.style.display = 'none'; videoEl.onerror = null; videoEl.muted = true; }
     if (btnVolume) { btnVolume.style.display = 'none'; btnVolume.textContent = '🔇'; }
-    if (iframe) iframe.src = '';
     if (iframeWrap) iframeWrap.style.display = 'none';
-    if (loadingEl) { loadingEl.textContent = 'Chargement de la vidéo…'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
+    if (loadingEl) { loadingEl.textContent = 'Extraction de la vidéo en cours…'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
+    if (linkOpen) linkOpen.style.display = 'none';
+
+    if (videoId && iframe) {
+      iframe.src = 'https://www.tiktok.com/embed/v2/' + videoId + '?lang=fr-FR&autoplay=1';
+    } else if (iframe) {
+      iframe.src = '';
+    }
 
     var loadingSafety = null;
     var proxyFallbackTimer = null;
@@ -242,81 +281,88 @@
       loadingSafetyDone = true;
       if (loadingSafety) { clearTimeout(loadingSafety); loadingSafety = null; }
       if (proxyFallbackTimer) { clearTimeout(proxyFallbackTimer); proxyFallbackTimer = null; }
-      if (loadingEl) loadingEl.style.display = 'none';
+      if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
       if (videoEl) { videoEl.src = ''; videoEl.style.display = 'none'; videoEl.onerror = null; }
       if (btnVolume) btnVolume.style.display = 'none';
-      if (videoId && iframe) {
-        iframe.src = 'https://www.tiktok.com/embed/v2/' + videoId + '?lang=fr-FR&autoplay=1';
-        if (iframeWrap) iframeWrap.style.display = 'block';
-      }
+      if (iframeWrap && videoId) iframeWrap.style.display = 'block';
       if (linkOpen && videoUrl) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
     }
 
     if (!videoUrl) {
-      if (loadingEl) loadingEl.style.display = 'none';
+      if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
       if (linkOpen) { linkOpen.href = '#'; linkOpen.style.display = 'none'; }
     } else {
-      if (linkOpen) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
+      if (linkOpen) { linkOpen.href = videoUrl; }
       loadingSafety = setTimeout(function () {
         loadingSafety = null;
         if (!loadingSafetyDone) showIframeFallback();
-      }, 8000);
-      const ac = new AbortController();
-      const fetchTimeout = setTimeout(() => ac.abort(), 8000);
-      fetch('/api/tiktok-mp4?url=' + encodeURIComponent(videoUrl), { signal: ac.signal })
-        .then(function (r) { clearTimeout(fetchTimeout); return r.json(); })
-        .then(function (j) {
-          if (!j.url || !j.url.startsWith('http')) { showIframeFallback(); return; }
-          if (!videoEl) { showIframeFallback(); return; }
-          videoEl.onloadeddata = function () {
-            if (loadingSafety) { clearTimeout(loadingSafety); loadingSafety = null; }
-            if (proxyFallbackTimer) { clearTimeout(proxyFallbackTimer); proxyFallbackTimer = null; }
-            loadingSafetyDone = true;
-            if (loadingEl) loadingEl.style.display = 'none';
-            if (iframeWrap) iframeWrap.style.display = 'none';
-            videoEl.style.display = 'block';
-            if (btnVolume) btnVolume.style.display = 'flex';
-            videoEl.play().catch(() => {});
-          };
-          videoEl.onerror = function () { showIframeFallback(); };
-          videoEl.src = '/api/tiktok-video-proxy?url=' + encodeURIComponent(j.url);
-          videoEl.load();
-          proxyFallbackTimer = setTimeout(function () {
-            proxyFallbackTimer = null;
-            if (!loadingSafetyDone && videoEl.readyState < 2) showIframeFallback();
-          }, 5000);
-        })
-        .catch(function () {
-          clearTimeout(fetchTimeout);
-          showIframeFallback();
-        });
+      }, 12000);
+      if (videoEl) {
+        videoEl.onloadeddata = function () {
+          if (loadingSafety) { clearTimeout(loadingSafety); loadingSafety = null; }
+          if (proxyFallbackTimer) { clearTimeout(proxyFallbackTimer); proxyFallbackTimer = null; }
+          loadingSafetyDone = true;
+          if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
+          if (iframeWrap) iframeWrap.style.display = 'none';
+          videoEl.style.display = 'block';
+          if (btnVolume) btnVolume.style.display = 'flex';
+          videoEl.play().catch(() => {});
+        };
+        videoEl.onerror = function () { showIframeFallback(); };
+        videoEl.src = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
+        videoEl.load();
+        proxyFallbackTimer = setTimeout(function () {
+          proxyFallbackTimer = null;
+          if (!loadingSafetyDone && videoEl.readyState < 2) showIframeFallback();
+        }, 6000);
+      } else {
+        showIframeFallback();
+      }
     }
     const isOwner = myPlayerId === ownerId;
     const isSolo = (players || []).length === 1;
     const canVote = isSolo || !isOwner;
     $('wait-owner').classList.toggle('hidden', canVote);
+    const ownerHint = $('vote-owner-hint');
+    const voteFeedback = $('vote-feedback');
+    if (ownerHint) ownerHint.classList.add('hidden');
+    if (voteFeedback) voteFeedback.classList.add('hidden');
+    if (canVote && !isSolo) {
+      const owner = (players || []).find(p => p.playerId === ownerId);
+      if (ownerHint && owner) { ownerHint.textContent = 'C\'est le like de ' + owner.username + ' — devine qui a liké !'; ownerHint.classList.remove('hidden'); }
+    }
     const container = $('vote-buttons');
     container.classList.toggle('hidden', !canVote);
     if (canVote) {
       const list = isSolo ? (players || []) : (players || []).filter(p => p.playerId !== myPlayerId);
-      container.innerHTML = list.map(pl => `
-        <button type="button" data-player-id="${escapeAttr(pl.playerId)}">${escapeHtml(pl.username)}</button>
+      container.innerHTML = list.map((pl, idx) => `
+        <button type="button" class="vote-btn" data-player-id="${escapeAttr(pl.playerId)}" data-username="${escapeAttr(pl.username)}" data-key="${idx + 1}">${escapeHtml(pl.username)}</button>
       `).join('');
       container.querySelectorAll('button').forEach(btn => {
         btn.onclick = () => {
+          const targetName = btn.dataset.username || '';
           socket.emit('submit_vote', { code: roomCode, targetPlayerId: btn.dataset.playerId, roundIndex });
           container.innerHTML = '';
           container.classList.add('hidden');
+          if (voteFeedback) { voteFeedback.textContent = 'Tu as voté pour ' + targetName; voteFeedback.classList.remove('hidden'); }
+          if (navigator.vibrate) navigator.vibrate(50);
         };
       });
+      document.addEventListener('keydown', voteKeyHandler);
+    } else {
+      document.removeEventListener('keydown', voteKeyHandler);
     }
     const scoresEl = $('scores-inline');
-    if (scoresEl) scoresEl.innerHTML = (players || []).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5).map((pl, i) => `${i + 1}. ${pl.username} ${pl.score || 0}`).join(' · ');
+    if (scoresEl) scoresEl.innerHTML = (players || []).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5).map((pl, i) => {
+      const str = (pl.streak && pl.streak > 1) ? ` (×${pl.streak})` : '';
+      return `${i + 1}. ${pl.username} ${pl.score || 0}${str}`;
+    }).join(' · ');
     show('screen-game');
   });
 
   let rouletteTimer = null;
   socket.on('start_reveal', (data) => {
+    document.removeEventListener('keydown', voteKeyHandler);
     show('screen-reveal');
     const avatarEl = $('roulette-avatar');
     const nameEl = $('roulette-name');
@@ -336,6 +382,7 @@
 
   socket.on('reveal_winner', (data) => {
     if (rouletteTimer) { clearTimeout(rouletteTimer); rouletteTimer = null; }
+    if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
     const { ownerId, scores, hasNextRound } = data;
     const owner = (players || []).find(p => p.playerId === ownerId);
     if (owner) {
@@ -344,9 +391,11 @@
       $('roulette-avatar').alt = owner.username;
     }
     const scoresEl = $('reveal-scores');
-    if (scoresEl) scoresEl.innerHTML = (scores || []).sort((a, b) => (b.score || 0) - (a.score || 0)).map(s => `
-      <div><span>${escapeHtml(s.username)}</span><span>${s.score || 0} pts</span></div>
-    `).join('');
+    if (scoresEl) scoresEl.innerHTML = (scores || []).sort((a, b) => (b.score || 0) - (a.score || 0)).map(s => {
+      const streakStr = (s.streak && s.streak > 1) ? ` <small>(×${s.streak})</small>` : '';
+      const ptsGained = (s.pointsThisRound != null && s.pointsThisRound > 0) ? ` <small class="pts-gained">(+${s.pointsThisRound})</small>` : '';
+      return `<div><span>${escapeHtml(s.username)}${streakStr}</span><span>${s.score || 0} pts${ptsGained}</span></div>`;
+    }).join('');
     const btnNext = $('btn-next-round');
     const waitHostEl = $('reveal-wait-host');
     if (btnNext) btnNext.classList.add('hidden');
@@ -359,16 +408,49 @@
         msg.className = 'reveal-auto-next';
         if ($('reveal-next-area')) $('reveal-next-area').appendChild(msg);
       }
-      if (msg) { msg.textContent = 'Prochaine vidéo dans 3 secondes…'; msg.classList.remove('hidden'); }
+      if (msg) { msg.textContent = 'Prochaine vidéo dans 1 seconde…'; msg.classList.remove('hidden'); }
     }
   });
 
+  let lastGameOver = null;
   socket.on('game_over', (data) => {
     const scores = (data.scores || []).sort((a, b) => (b.score || 0) - (a.score || 0));
+    lastGameOver = { scores, totalRounds: data.totalRounds || 0 };
+    const totalRounds = lastGameOver.totalRounds || scores.length;
+    const myScore = scores.find(s => s.playerId === myPlayerId);
+    const statsEl = $('gameover-stats');
+    if (statsEl && myScore) {
+      const correct = myScore.correctCount ?? 0;
+      const streak = myScore.maxStreak ?? 0;
+      statsEl.innerHTML = '<p>Tu as deviné <strong>' + correct + '</strong> / ' + totalRounds + ' — Meilleure série : <strong>' + streak + '</strong></p>';
+      statsEl.classList.remove('hidden');
+    }
     $('podium-list').innerHTML = scores.map((s, i) => `
       <li><span>${i + 1}. ${escapeHtml(s.username)}</span><span>${s.score || 0} pts</span></li>
     `).join('');
     show('screen-gameover');
+    document.removeEventListener('keydown', voteKeyHandler);
+  });
+
+  $('btn-share-score').addEventListener('click', () => {
+    const myScore = lastGameOver?.scores?.find(s => s.playerId === myPlayerId);
+    const text = myScore
+      ? 'Guess The Like — ' + myScore.username + ' : ' + (myScore.score || 0) + ' pts (deviné ' + (myScore.correctCount ?? 0) + '/' + (lastGameOver.totalRounds || 0) + ')'
+      : 'Guess The Like — Devine qui a liké ce TikTok !';
+    const url = window.location.href.split('?')[0];
+    if (navigator.share && navigator.canShare?.({ text, url })) {
+      navigator.share({ title: 'Guess The Like', text, url }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text + ' ' + url).then(() => {
+        const btn = $('btn-share-score');
+        if (btn) { btn.textContent = '✓ Lien copié !'; setTimeout(() => { btn.textContent = 'Partager mon score'; }, 2000); }
+      });
+    }
+  });
+
+  $('btn-replay').addEventListener('click', () => {
+    show('screen-lobby');
+    showLobby();
   });
 
   $('btn-lobby').addEventListener('click', () => {
@@ -395,5 +477,9 @@
   }
   function escapeAttr(s) {
     return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 })();

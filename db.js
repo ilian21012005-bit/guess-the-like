@@ -61,21 +61,23 @@ async function saveLikes(playerId, videoUrls) {
 }
 
 /**
- * Récupère jusqu'à 50 vidéos pour une partie : jamais jouées dans cette room en priorité, sinon complète avec les moins jouées.
+ * Récupère jusqu'à limit vidéos pour une partie : jamais jouées dans cette room en priorité.
+ * @param {number} limit - 10, 25 ou 50
  */
-async function get50VideosForRoom(roomCode, playerIds) {
+async function getVideosForRoom(roomCode, playerIds, limit = 50) {
   if (!pool || !playerIds.length) return [];
+  const cap = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 50);
   const placeholders = playerIds.map((_, i) => `$${i + 1}`).join(',');
   const params = [...playerIds, roomCode];
   let res = await query(
     `SELECT ul.id, ul.video_url, ul.player_id FROM user_likes ul
      WHERE ul.player_id IN (${placeholders})
      AND NOT EXISTS (SELECT 1 FROM play_history ph WHERE ph.room_code = $${playerIds.length + 1} AND ph.video_id = ul.id)
-     ORDER BY RANDOM() LIMIT 50`,
+     ORDER BY RANDOM() LIMIT ${cap}`,
     params
   );
   let list = res && res.rows ? res.rows : [];
-  if (list.length < 50) {
+  if (list.length < cap) {
     const fallback = await query(
       `SELECT ul.id, ul.video_url, ul.player_id FROM user_likes ul
        WHERE ul.player_id IN (${placeholders})
@@ -84,9 +86,13 @@ async function get50VideosForRoom(roomCode, playerIds) {
     );
     const existingIds = new Set(list.map(r => r.id));
     const extra = (fallback && fallback.rows ? fallback.rows : []).filter(r => !existingIds.has(r.id));
-    list = [...list, ...extra].slice(0, 50);
+    list = [...list, ...extra].slice(0, cap);
   }
   return list.map(r => ({ id: r.id, video_url: r.video_url, owner_id: r.player_id }));
+}
+
+async function get50VideosForRoom(roomCode, playerIds) {
+  return getVideosForRoom(roomCode, playerIds, 50);
 }
 
 async function recordPlayedVideo(roomCode, videoId) {
@@ -108,6 +114,7 @@ module.exports = {
   addPlayerToRoom,
   saveLikes,
   get50VideosForRoom,
+  getVideosForRoom,
   recordPlayedVideo,
   getPlayerById,
 };

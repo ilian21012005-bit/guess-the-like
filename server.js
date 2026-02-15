@@ -14,6 +14,19 @@ const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Rate limit pour les APIs vidéo (par IP)
+const videoRateLimit = new Map();
+const VIDEO_RATE_LIMIT_WINDOW = 60000;
+const VIDEO_RATE_LIMIT_MAX = 30;
+function checkVideoRateLimit(ip) {
+  const now = Date.now();
+  let bucket = videoRateLimit.get(ip) || { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
+  if (now >= bucket.resetAt) bucket = { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
+  bucket.count++;
+  videoRateLimit.set(ip, bucket);
+  return bucket.count <= VIDEO_RATE_LIMIT_MAX;
+}
+
 // Nettoyer les tokens bookmarklet expirés
 function cleanupBookmarkletTokens() {
   const now = Date.now();
@@ -54,6 +67,8 @@ app.post('/api/import-likes-from-bookmarklet', (req, res) => {
 
 // API pour récupérer l'URL MP4 d'une vidéo TikTok (affichage sans iframe)
 app.get('/api/tiktok-mp4', async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (!checkVideoRateLimit(ip)) return res.status(429).json({ error: 'Trop de requêtes.' });
   const url = req.query.url;
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'Paramètre url requis.' });
   try {
@@ -65,7 +80,43 @@ app.get('/api/tiktok-mp4', async (req, res) => {
   }
 });
 
-// Proxy vidéo : le navigateur charge le MP4 via notre serveur (évite blocage Referer/CORS)
+// Stream vidéo direct : on reçoit l’URL de la page TikTok, on extrait le MP4 côté serveur et on stream (évite 403 / URL à usage unique)
+app.get('/api/tiktok-video', async (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (!checkVideoRateLimit(ip)) return res.status(429).end();
+  const pageUrl = req.query.url;
+  if (!pageUrl || typeof pageUrl !== 'string') return res.status(400).end();
+  const allowed = /^https?:\/\/([a-z0-9.-]+\.)?(tiktok\.com|vm\.tiktok\.com)\//i;
+  if (!allowed.test(pageUrl.trim())) return res.status(403).end();
+  try {
+    const result = await getTikTokMp4Url(pageUrl.trim());
+    if (result.error || !result.url) return res.status(404).end();
+    const mp4Url = result.url.startsWith('//') ? 'https:' + result.url : result.url;
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 25000);
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://www.tiktok.com/',
+      'Accept': '*/*',
+    };
+    const range = req.headers.range;
+    if (range) headers['Range'] = range;
+    const r = await fetch(mp4Url, { headers, redirect: 'follow', signal: controller.signal });
+    clearTimeout(to);
+    if (!r.ok) return res.status(r.status).end();
+    const ct = r.headers.get('Content-Type') || 'video/mp4';
+    res.setHeader('Content-Type', ct);
+    if (r.status === 206) res.setHeader('Content-Range', r.headers.get('Content-Range') || '');
+    const cl = r.headers.get('Content-Length');
+    if (cl) res.setHeader('Content-Length', cl);
+    res.status(r.status);
+    Readable.fromWeb(r.body).pipe(res);
+  } catch (err) {
+    res.status(502).end();
+  }
+});
+
+// Proxy vidéo : le navigateur charge le MP4 via notre serveur (évite blocage Referer/CORS) — gardé pour compatibilité
 app.get('/api/tiktok-video-proxy', async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl || typeof targetUrl !== 'string') return res.status(400).end();
@@ -107,6 +158,23 @@ const lastNextRoundSent = new Map(); // roomCode -> { index, at }
 // Tokens bookmarklet (multi-joueurs) : token -> { roomCode, playerId, socketId, createdAt }
 const bookmarkletTokens = new Map();
 const BOOKMARKLET_TOKEN_TTL_MS = 15 * 60 * 1000;
+const ROOM_EXPIRE_MS = 2 * 60 * 60 * 1000; // 2 h
+
+function touchRoom(room) {
+  if (room) room.lastActivity = Date.now();
+}
+function cleanupExpiredRooms() {
+  const now = Date.now();
+  for (const [code, room] of rooms.entries()) {
+    if (now - (room.lastActivity || now) > ROOM_EXPIRE_MS) {
+      rooms.delete(code);
+      roomPlayed.delete(code);
+      roomLikes.delete(code);
+      lastNextRoundSent.delete(code);
+    }
+  }
+}
+setInterval(cleanupExpiredRooms, 5 * 60 * 1000);
 
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -139,6 +207,7 @@ io.on('connection', (socket) => {
     if (!username?.trim()) return ack?.({ error: 'Username required' });
     const player = db.pool ? await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) : { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
     const playerId = player?.id ?? socket.id;
+    if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.length > 500000) return ack?.({ error: 'Image de profil trop lourde (max ~500 Ko).' });
     const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
     let code = generateCode();
     while (rooms.has(code)) code = generateCode();
@@ -154,10 +223,12 @@ io.on('connection', (socket) => {
       players: [{ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: avatar, isReady: false, score: 0, streak: 0 }],
       status: 'lobby',
       gameState: null,
+      lastActivity: Date.now(),
     };
     rooms.set(code, room);
     if (db.pool && roomId) await db.addPlayerToRoom(roomId, playerId, socket.id);
     socket.join(code);
+    touchRoom(room);
     ack?.({ code, playerId, players: getPlayerListForRoom(room) });
   });
 
@@ -168,6 +239,7 @@ io.on('connection', (socket) => {
     if (!room) return ack?.({ error: 'Room not found' });
     if (room.status !== 'lobby') return ack?.({ error: 'Game already started' });
     if (!username?.trim()) return ack?.({ error: 'Username required' });
+    if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.length > 500000) return ack?.({ error: 'Image de profil trop lourde (max ~500 Ko).' });
     const player = db.pool ? await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) : { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
     const playerId = player?.id ?? socket.id;
     const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
@@ -175,6 +247,7 @@ io.on('connection', (socket) => {
     room.players.push({ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: avatar, isReady: false, score: 0, streak: 0 });
     if (db.pool && room.roomId) await db.addPlayerToRoom(room.roomId, playerId, socket.id);
     socket.join(roomCode);
+    touchRoom(room);
     io.to(roomCode).emit('room_updated', { players: getPlayerListForRoom(room) });
     ack?.({ playerId, players: getPlayerListForRoom(room) });
   });
@@ -272,6 +345,7 @@ io.on('connection', (socket) => {
     }
     if (urls.length === 0) return ack?.({ error: 'Aucun lien TikTok trouvé (format: .../video/...). Colle un lien par ligne.' });
     const key = (room.code || '').toUpperCase();
+    if (db.pool && me.playerId) await db.saveLikes(me.playerId, urls);
     if (!roomLikes.has(key)) roomLikes.set(key, {});
     const list = urls.map((url, i) => ({
       id: `mem-${me.playerId}-${i}-${Date.now()}`,
@@ -280,6 +354,7 @@ io.on('connection', (socket) => {
     }));
     roomLikes.get(key)[me.playerId] = list;
     me.isReady = true;
+    touchRoom(room);
     io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
     console.log('[import_likes] Stored %s links for room=%s playerId=%s', list.length, key, me.playerId);
     ack?.({ ok: true, count: list.length });
@@ -287,16 +362,18 @@ io.on('connection', (socket) => {
 
   socket.on('start_game', async (data, ack) => {
     const roomCode = (data?.code || '').toUpperCase();
+    const totalRounds = Math.min(Math.max(parseInt(data?.totalRounds, 10) || 50, 10), 50);
     const room = getRoomByCode(roomCode);
     if (!room) return ack?.({ error: 'Room not found' });
     if (room.hostSocketId !== socket.id) return ack?.({ error: 'Only host can start' });
     if (room.status !== 'lobby') return ack?.({ error: 'Game already started' });
+    touchRoom(room);
     const playerIds = room.players.map(p => p.playerId);
     if (!roomPlayed.has(roomCode)) roomPlayed.set(roomCode, new Set());
     const played = roomPlayed.get(roomCode);
     let rounds = [];
     if (db.pool) {
-      const fromDb = await db.get50VideosForRoom(roomCode, playerIds);
+      const fromDb = await db.getVideosForRoom(roomCode, playerIds, totalRounds);
       rounds = fromDb.filter(r => !played.has(r.id));
     }
     if (!rounds.length) {
@@ -310,7 +387,7 @@ io.on('connection', (socket) => {
         const j = Math.floor(Math.random() * (i + 1));
         [all[i], all[j]] = [all[j], all[i]];
       }
-      rounds = all.slice(0, 50);
+      rounds = all.slice(0, totalRounds);
     }
     if (!rounds.length) {
       const mem = roomLikes.get((roomCode || '').toUpperCase());
@@ -325,7 +402,7 @@ io.on('connection', (socket) => {
       votes: {},
       roundStartTime: null,
     };
-    room.players.forEach(p => { p.score = 0; p.streak = 0; });
+    room.players.forEach(p => { p.score = 0; p.streak = 0; p.correctCount = 0; p.maxStreak = 0; });
     const playersForClient = getPlayerListForRoom(room);
     io.to(roomCode).emit('game_started', { players: playersForClient, totalRounds: rounds.length });
     ack?.({ ok: true });
@@ -341,8 +418,15 @@ io.on('connection', (socket) => {
     if (last && last.index === currentIndex && (now - last.at) < 2500) return;
     lastNextRoundSent.set(roomCode, { index: currentIndex, at: now });
     if (currentIndex >= rounds.length) {
-      const finalScores = room.players.map(p => ({ playerId: p.playerId, username: p.username, score: p.score }));
-      io.to(roomCode).emit('game_over', { scores: finalScores });
+      const totalRoundsPlayed = rounds.length;
+      const finalScores = room.players.map(p => ({
+        playerId: p.playerId,
+        username: p.username,
+        score: p.score,
+        correctCount: p.correctCount ?? 0,
+        maxStreak: p.maxStreak ?? 0,
+      }));
+      io.to(roomCode).emit('game_over', { scores: finalScores, totalRounds: totalRoundsPlayed });
       room.status = 'lobby';
       room.gameState = null;
       lastNextRoundSent.delete(roomCode);
@@ -375,21 +459,26 @@ io.on('connection', (socket) => {
     votes[socket.id] = { targetPlayerId, responseTime };
     const votersExpected = isSolo ? 1 : room.players.length - 1;
     if (Object.keys(votes).length < votersExpected) return;
-    const BASE_POINTS = 1000;
-    const STREAK_MULT = 0.2;
+    const BASE_POINTS = 100;
+    const STREAK_BONUS = 50;
+    const pointsThisRoundByPlayer = {};
     room.players.forEach(p => {
       const v = votes[p.socketId];
       if (!v) return;
       const correct = v.targetPlayerId === ownerId;
       if (correct) {
         p.streak = (p.streak || 0) + 1;
-        const timeBonus = Math.max(0.5, 1 - v.responseTime / 30000);
-        const streakBonus = 1 + (p.streak - 1) * STREAK_MULT;
-        p.score = (p.score || 0) + Math.round(BASE_POINTS * timeBonus * Math.min(streakBonus, 2));
+        p.correctCount = (p.correctCount || 0) + 1;
+        p.maxStreak = Math.max(p.maxStreak || 0, p.streak);
+        const points = BASE_POINTS + (p.streak - 1) * STREAK_BONUS;
+        p.score = (p.score || 0) + points;
+        pointsThisRoundByPlayer[p.playerId] = points;
       } else {
         p.streak = 0;
+        pointsThisRoundByPlayer[p.playerId] = 0;
       }
     });
+    touchRoom(room);
     if (db.pool) db.recordPlayedVideo(room.code, currentRound.id).catch(() => {});
     else roomPlayed.get(room.code)?.add(currentRound.id);
     io.to(room.code).emit('start_reveal', { ownerId, roundIndex });
@@ -398,12 +487,18 @@ io.on('connection', (socket) => {
     setTimeout(() => {
       io.to(room.code).emit('reveal_winner', {
         ownerId,
-        scores: getPlayerListForRoom(room).map(p => ({ playerId: p.playerId, username: p.username, score: p.score, streak: p.streak })),
+        scores: getPlayerListForRoom(room).map(p => ({
+          playerId: p.playerId,
+          username: p.username,
+          score: p.score,
+          streak: p.streak,
+          pointsThisRound: pointsThisRoundByPlayer[p.playerId] ?? 0,
+        })),
         hasNextRound: hasNext,
       });
       room.gameState.currentIndex = nextIndex;
-      setTimeout(() => sendNextRound(room.code), 3000);
-    }, 5000);
+      setTimeout(() => sendNextRound(room.code), 1500);
+    }, 2500);
   });
 
   socket.on('request_next_round', (data) => {

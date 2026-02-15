@@ -1,0 +1,18 @@
+{
+  "name": "Guess The Like",
+  "short_name": "Guess The Like",
+  "description": "Devine qui a liké ce TikTok",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230d0d0d'/><text x='16' y='24' font-size='24' text-anchor='middle' fill='%23f0f0f0'>👍</text></svg>",
+      "sizes": "32x32",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

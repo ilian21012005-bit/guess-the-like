@@ -325,7 +325,7 @@ io.on('connection', (socket) => {
     ack?.({ ok: true, count });
   });
 
-  socket.on('import_likes', (data, ack) => {
+  socket.on('import_likes', async (data, ack) => {
     const { code, urlsText } = data || {};
     const room = getRoomByCode((code || '').toUpperCase());
     if (!room) return ack?.({ error: 'Room not found' });
@@ -345,7 +345,13 @@ io.on('connection', (socket) => {
     }
     if (urls.length === 0) return ack?.({ error: 'Aucun lien TikTok trouvé (format: .../video/...). Colle un lien par ligne.' });
     const key = (room.code || '').toUpperCase();
-    if (db.pool && me.playerId) await db.saveLikes(me.playerId, urls);
+    if (db.pool && me.playerId) {
+      try {
+        await db.saveLikes(me.playerId, urls);
+      } catch (err) {
+        console.error('[import_likes] saveLikes failed:', err?.message || err);
+      }
+    }
     if (!roomLikes.has(key)) roomLikes.set(key, {});
     const list = urls.map((url, i) => ({
       id: `mem-${me.playerId}-${i}-${Date.now()}`,
@@ -479,8 +485,13 @@ io.on('connection', (socket) => {
       }
     });
     touchRoom(room);
-    if (db.pool) db.recordPlayedVideo(room.code, currentRound.id).catch(() => {});
-    else roomPlayed.get(room.code)?.add(currentRound.id);
+    const roundId = currentRound.id;
+    const isDbRound = typeof roundId === 'number';
+    if (db.pool && isDbRound) {
+      db.recordPlayedVideo(room.code, roundId).catch((err) => console.error('[submit_vote] recordPlayedVideo failed:', err?.message || err));
+    }
+    const playedSet = roomPlayed.get(room.code);
+    if (playedSet) playedSet.add(roundId);
     io.to(room.code).emit('start_reveal', { ownerId, roundIndex });
     const nextIndex = currentIndex + 1;
     const hasNext = nextIndex < rounds.length;

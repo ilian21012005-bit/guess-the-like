@@ -4,8 +4,34 @@ const http = require('http');
 const { Readable } = require('stream');
 const express = require('express');
 const { Server } = require('socket.io');
-const { harvestLikes, getTikTokMp4Url } = require('./scraper');
+const { harvestLikes, getTikTokMp4Url, getTikTokMp4Buffer } = require('./scraper');
 const db = require('./db');
+
+// File d'attente pour le secours Playwright : 2 en parallèle pour réduire le temps de setup
+const PLAYWRIGHT_CONCURRENT = 2;
+const playwrightQueue = [];
+let playwrightRunning = 0;
+function runPlaywrightQueue() {
+  while (playwrightRunning < PLAYWRIGHT_CONCURRENT && playwrightQueue.length > 0) {
+    const { pageUrl, resolve } = playwrightQueue.shift();
+    playwrightRunning++;
+    getTikTokMp4Buffer(pageUrl).then((result) => {
+      playwrightRunning--;
+      resolve(result);
+      runPlaywrightQueue();
+    }).catch((err) => {
+      playwrightRunning--;
+      resolve({ error: err.message || 'BUFFER_ERROR' });
+      runPlaywrightQueue();
+    });
+  }
+}
+function enqueuePlaywrightFallback(pageUrl) {
+  return new Promise((resolve) => {
+    playwrightQueue.push({ pageUrl, resolve });
+    runPlaywrightQueue();
+  });
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -86,29 +112,93 @@ app.get('/api/tiktok-video', async (req, res) => {
   if (!checkVideoRateLimit(ip)) return res.status(429).end();
   const pageUrl = req.query.url;
   if (!pageUrl || typeof pageUrl !== 'string') return res.status(400).end();
-  const allowed = /^https?:\/\/([a-z0-9.-]+\.)?(tiktok\.com|vm\.tiktok\.com)\//i;
-  if (!allowed.test(pageUrl.trim())) return res.status(403).end();
-  const t0 = Date.now();
+  let trimmed = pageUrl.trim();
   try {
-    const result = await getTikTokMp4Url(pageUrl.trim());
+    if (trimmed.includes('%')) trimmed = decodeURIComponent(trimmed);
+  } catch (_) {}
+  let hostOk = false;
+  try {
+    const u = new URL(trimmed);
+    const host = (u.hostname || '').toLowerCase();
+    if (host === 'tiktok.com' || host.endsWith('.tiktok.com') || host === 'vm.tiktok.com' || host === 'vt.tiktok.com') hostOk = true;
+  } catch (_) {}
+  if (!hostOk && !/tiktok\.com/.test(trimmed)) {
+    console.warn('[tiktok-video] 403 URL non autorisée. Début reçu:', pageUrl.slice(0, 80));
+    return res.status(403).end();
+  }
+  if (!hostOk) hostOk = true;
+  const t0 = Date.now();
+  const VIDEO_EXTRACT_TIMEOUT_MS = 22000;
+  let responseSent = false;
+  function sendOnce(status, body) {
+    if (responseSent) return;
+    responseSent = true;
+    if (body !== undefined) res.status(status).end(body);
+    else res.status(status).end();
+  }
+  const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), VIDEO_EXTRACT_TIMEOUT_MS));
+  const work = (async () => {
+    const result = await getTikTokMp4Url(trimmed);
     const tExtract = Date.now() - t0;
     console.log('[tiktok-video] extraction MP4: ' + tExtract + ' ms' + (result.error ? ' (échec: ' + result.error + ')' : ''));
-    if (result.error || !result.url) return res.status(404).end();
+    if (result.error || !result.url) { sendOnce(404); return; }
     const mp4Url = result.url.startsWith('//') ? 'https:' + result.url : result.url;
     const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), 60000);
+    const fetchTimeoutMs = Math.min(4000, VIDEO_EXTRACT_TIMEOUT_MS - (Date.now() - t0) - 2000);
+    const to = setTimeout(() => controller.abort(), fetchTimeoutMs);
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://www.tiktok.com/',
+      'Referer': trimmed.split('?')[0] || 'https://www.tiktok.com/',
+      'Origin': 'https://www.tiktok.com',
       'Accept': '*/*',
     };
     const range = req.headers.range;
     if (range) headers['Range'] = range;
-    const r = await fetch(mp4Url, { headers, redirect: 'follow', signal: controller.signal });
+    let r;
+    try {
+      r = await fetch(mp4Url, { headers, redirect: 'follow', signal: controller.signal });
+    } catch (fetchErr) {
+      clearTimeout(to);
+      if (fetchErr.name === 'AbortError') {
+        console.warn('[tiktok-video] fetch CDN timeout — secours Playwright…');
+      } else {
+        console.warn('[tiktok-video] fetch CDN erreur — secours Playwright…');
+      }
+      const fallback = await enqueuePlaywrightFallback(trimmed);
+      if (fallback.buffer) {
+        if (!responseSent) {
+          responseSent = true;
+          res.setHeader('Content-Type', fallback.contentType || 'video/mp4');
+          res.setHeader('Content-Length', fallback.buffer.length);
+          res.status(200).end(fallback.buffer);
+        }
+        return;
+      }
+      sendOnce(504);
+      return;
+    }
     clearTimeout(to);
     const tTotal = Date.now() - t0;
+    if (!r.ok) {
+      console.warn('[tiktok-video] CDN TikTok a retourné ' + r.status + ' — secours Playwright…');
+      const fallback = await enqueuePlaywrightFallback(trimmed);
+      if (fallback.buffer) {
+        console.log('[tiktok-video] secours Playwright OK: ' + (Date.now() - t0) + ' ms (buffer ' + fallback.buffer.length + ' octets)');
+        if (!responseSent) {
+          responseSent = true;
+          res.setHeader('Content-Type', fallback.contentType || 'video/mp4');
+          res.setHeader('Content-Length', fallback.buffer.length);
+          res.status(200).end(fallback.buffer);
+        }
+        return;
+      }
+      console.warn('[tiktok-video] secours Playwright échec:', fallback.error || '');
+      sendOnce(r.status);
+      return;
+    }
     console.log('[tiktok-video] stream démarré: ' + tTotal + ' ms total (extraction: ' + tExtract + ' ms)');
-    if (!r.ok) return res.status(r.status).end();
+    if (responseSent) return;
+    responseSent = true;
     const ct = r.headers.get('Content-Type') || 'video/mp4';
     res.setHeader('Content-Type', ct);
     if (r.status === 206) res.setHeader('Content-Range', r.headers.get('Content-Range') || '');
@@ -116,8 +206,16 @@ app.get('/api/tiktok-video', async (req, res) => {
     if (cl) res.setHeader('Content-Length', cl);
     res.status(r.status);
     Readable.fromWeb(r.body).pipe(res);
+  })();
+  try {
+    await Promise.race([work, timeoutPromise]);
   } catch (err) {
-    res.status(502).end();
+    if (err && err.message === 'TIMEOUT') {
+      console.warn('[tiktok-video] timeout après ' + VIDEO_EXTRACT_TIMEOUT_MS + ' ms');
+      sendOnce(504);
+    } else if (!responseSent) {
+      sendOnce(502);
+    }
   }
 });
 
@@ -406,7 +504,7 @@ io.on('connection', (socket) => {
       console.log('[start_game] Aucune vidéo. roomCode=%s playerIds=%s roomLikes total=%s', roomCode, playerIds.length, total);
       return ack?.({ error: 'Aucune vidéo. Clique sur « Prêt » (likes en public sur TikTok), attends le message de succès, puis relance.' });
     }
-    room.status = 'playing';
+    room.status = 'preparing';
     room.gameState = {
       rounds,
       currentIndex: 0,
@@ -415,9 +513,19 @@ io.on('connection', (socket) => {
     };
     room.players.forEach(p => { p.score = 0; p.streak = 0; p.correctCount = 0; p.maxStreak = 0; });
     const playersForClient = getPlayerListForRoom(room);
-    io.to(roomCode).emit('game_started', { players: playersForClient, totalRounds: rounds.length });
+    const roundUrls = rounds.map(r => r.video_url);
+    io.to(roomCode).emit('game_preparing', { roundUrls, totalRounds: rounds.length, players: playersForClient });
     ack?.({ ok: true });
-    // Aucun round envoyé automatiquement : le premier round est envoyé quand l'hôte le demande (après le décompte).
+  });
+
+  socket.on('preload_done', (data) => {
+    const roomCode = (data?.code || '').toUpperCase();
+    const room = getRoomByCode(roomCode);
+    if (!room || room.status !== 'preparing') return;
+    if (room.hostSocketId !== socket.id) return;
+    room.status = 'playing';
+    const playersForClient = getPlayerListForRoom(room);
+    io.to(roomCode).emit('game_started', { players: playersForClient, totalRounds: room.gameState.rounds.length });
   });
 
   function sendNextRound(roomCode) {

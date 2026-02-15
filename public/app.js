@@ -5,6 +5,8 @@
   let isHost = false;
   let players = [];
   let avatarDataUrl = '';
+  /** Cache des vidéos préchargées (url -> Blob ou null si échec). Vidé quand la partie se termine. */
+  let preloadCache = new Map();
 
   const params = new URLSearchParams(window.location.search);
   if (params.get('room')) {
@@ -214,9 +216,76 @@
         setError('lobby-error', res.error);
         return;
       }
-      show('screen-countdown');
-      startCountdown();
+      // La transition vers le jeu se fait via game_preparing puis game_started (après préchargement).
     });
+  });
+
+  socket.on('game_preparing', (data) => {
+    const roundUrls = data.roundUrls || [];
+    const total = data.totalRounds || roundUrls.length;
+    if (total === 0) return;
+    preloadCache.clear();
+    const progressEl = $('preload-progress');
+    const barEl = $('preload-bar');
+    show('screen-preload');
+    if (progressEl) progressEl.textContent = '0 / ' + total;
+    if (barEl) barEl.style.width = '0%';
+
+    let loaded = 0;
+    var allDoneCalled = false;
+    function onAllDone() {
+      if (allDoneCalled) return;
+      allDoneCalled = true;
+      if (isHost) socket.emit('preload_done', { code: roomCode });
+    }
+    function updateProgress() {
+      loaded++;
+      if (progressEl) progressEl.textContent = loaded + ' / ' + total;
+      if (barEl) barEl.style.width = Math.round((loaded / total) * 100) + '%';
+      if (loaded >= total) onAllDone();
+    }
+
+    if (roundUrls.length === 0) {
+      onAllDone();
+      return;
+    }
+
+    var PRELOAD_REQUEST_TIMEOUT_MS = 25000;
+    var CONCURRENT = 3;
+    var nextIndex = 0;
+    var inFlight = 0;
+    function runOne() {
+      if (nextIndex >= roundUrls.length) {
+        if (inFlight === 0) onAllDone();
+        return;
+      }
+      var videoUrl = roundUrls[nextIndex++];
+      inFlight++;
+      var apiUrl = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
+      var abortController = new AbortController();
+      var timeoutId = setTimeout(function () { abortController.abort(); }, PRELOAD_REQUEST_TIMEOUT_MS);
+      fetch(apiUrl, { signal: abortController.signal })
+        .then(function (res) {
+          clearTimeout(timeoutId);
+          if (res.ok) return res.blob();
+          preloadCache.set(videoUrl, null);
+          return null;
+        })
+        .then(function (blob) {
+          if (blob) preloadCache.set(videoUrl, blob);
+          updateProgress();
+          inFlight--;
+          runOne();
+        })
+        .catch(function () {
+          clearTimeout(timeoutId);
+          preloadCache.set(videoUrl, null);
+          updateProgress();
+          inFlight--;
+          runOne();
+        });
+    }
+    for (var i = 0; i < Math.min(CONCURRENT, roundUrls.length); i++) runOne();
   });
 
   socket.on('game_started', (data) => {
@@ -259,10 +328,11 @@
     const iframeWrap = document.querySelector('.video-fallback-embed');
     const loadingEl = $('video-loading');
     const linkOpen = $('video-open-tiktok');
+    const volumeControl = $('volume-control');
     const btnVolume = $('btn-volume');
 
     if (videoEl) { videoEl.src = ''; videoEl.style.display = 'none'; videoEl.onerror = null; videoEl.muted = true; }
-    if (btnVolume) { btnVolume.style.display = 'none'; btnVolume.textContent = '🔇'; }
+    if (volumeControl) volumeControl.style.display = 'none';
     if (iframeWrap) iframeWrap.style.display = 'none';
     if (loadingEl) { loadingEl.textContent = 'Extraction de la vidéo en cours…'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
     if (linkOpen) linkOpen.style.display = 'none';
@@ -274,24 +344,50 @@
     } else {
       if (linkOpen) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
       if (videoEl) {
-        const loadStartMs = performance.now();
-        videoEl.onloadeddata = function () {
-          const loadEndMs = performance.now();
-          const durationMs = Math.round(loadEndMs - loadStartMs);
-          console.log('[MP4] Vidéo prête en ' + durationMs + ' ms (round ' + (roundIndex + 1) + ')');
-          if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
-          if (iframeWrap) iframeWrap.style.display = 'none';
-          videoEl.style.display = 'block';
-          if (btnVolume) btnVolume.style.display = 'flex';
-          videoEl.play().catch(() => {});
-        };
-        videoEl.onerror = function () {
-          const durationMs = Math.round(performance.now() - loadStartMs);
-          console.warn('[MP4] Échec chargement après ' + durationMs + ' ms (round ' + (roundIndex + 1) + ')');
-          if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
-        };
-        videoEl.src = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
-        videoEl.load();
+        const cached = preloadCache.get(videoUrl);
+        function applyBlob(blob) {
+          if (!blob) {
+            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible. Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+            return;
+          }
+          const blobUrl = URL.createObjectURL(blob);
+          videoEl.src = blobUrl;
+          videoEl.onloadeddata = function () {
+            if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
+            if (iframeWrap) iframeWrap.style.display = 'none';
+            videoEl.style.display = 'block';
+            if (volumeControl) volumeControl.style.display = 'flex';
+            if (window.applyStoredVolumeToVideo) window.applyStoredVolumeToVideo();
+            videoEl.play().catch(() => {});
+          };
+          videoEl.onerror = function () {
+            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+          };
+          videoEl.load();
+        }
+        if (cached !== undefined) {
+          if (cached === null) {
+            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible. Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
+          } else {
+            if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
+            applyBlob(cached);
+          }
+        } else {
+          const apiUrl = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
+          fetch(apiUrl)
+            .then(function (res) {
+              if (!res.ok) {
+                var msg = res.status === 403 ? 'TikTok bloque la lecture (403). Ouvre le lien ci-dessous.' : 'Vidéo indisponible (serveur ' + res.status + '). Lien TikTok ci-dessous.';
+                if (loadingEl) { loadingEl.textContent = msg; loadingEl.classList.remove('hidden'); }
+                return null;
+              }
+              return res.blob();
+            })
+            .then(applyBlob)
+            .catch(function () {
+              if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (réseau). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+            });
+        }
       }
     }
     const isOwner = myPlayerId === ownerId;
@@ -389,6 +485,7 @@
 
   let lastGameOver = null;
   socket.on('game_over', (data) => {
+    preloadCache.clear();
     const scores = (data.scores || []).sort((a, b) => (b.score || 0) - (a.score || 0));
     lastGameOver = { scores, totalRounds: data.totalRounds || 0 };
     const totalRounds = lastGameOver.totalRounds || scores.length;
@@ -435,12 +532,61 @@
 
   (function () {
     const btn = $('btn-volume');
+    const slider = $('volume-slider');
     const video = $('tiktok-video');
+    const VOLUME_KEY = 'guess-the-like-volume';
+    const MUTED_KEY = 'guess-the-like-muted';
+    function getStoredVolume() {
+      var v = localStorage.getItem(VOLUME_KEY);
+      if (v != null) { var n = parseInt(v, 10); if (!isNaN(n) && n >= 0 && n <= 100) return n; }
+      return 100;
+    }
+    function getStoredMuted() {
+      var v = localStorage.getItem(MUTED_KEY);
+      if (v === null) return true;
+      return v === '1';
+    }
+    function setStoredVolume(n) { localStorage.setItem(VOLUME_KEY, String(n)); }
+    function setStoredMuted(m) { localStorage.setItem(MUTED_KEY, m ? '1' : '0'); }
+    function updateIcon() {
+      if (!btn || !video) return;
+      if (video.muted) {
+        btn.textContent = '🔇';
+        btn.title = 'Activer le son';
+      } else {
+        var pct = Math.round(video.volume * 100);
+        if (pct <= 0) { btn.textContent = '🔇'; btn.title = 'Volume'; }
+        else if (pct < 50) { btn.textContent = '🔈'; btn.title = 'Volume ' + pct + '%'; }
+        else { btn.textContent = '🔊'; btn.title = 'Volume ' + pct + '%'; }
+      }
+    }
+    function applyStoredToVideo() {
+      if (!video) return;
+      var vol = getStoredVolume();
+      var muted = getStoredMuted();
+      video.volume = vol / 100;
+      video.muted = muted;
+      if (slider) slider.value = vol;
+      updateIcon();
+    }
+    window.applyStoredVolumeToVideo = applyStoredToVideo;
     if (btn && video) {
+      applyStoredToVideo();
       btn.addEventListener('click', function () {
         video.muted = !video.muted;
-        btn.textContent = video.muted ? '🔇' : '🔊';
-        btn.title = video.muted ? 'Activer le son' : 'Couper le son';
+        setStoredMuted(video.muted);
+        if (!video.muted && slider) video.volume = parseInt(slider.value, 10) / 100;
+        updateIcon();
+      });
+    }
+    if (slider && video) {
+      slider.addEventListener('input', function () {
+        var val = parseInt(slider.value, 10);
+        video.volume = val / 100;
+        if (val > 0) { video.muted = false; setStoredMuted(false); }
+        else { video.muted = true; setStoredMuted(true); }
+        setStoredVolume(val);
+        updateIcon();
       });
     }
   })();

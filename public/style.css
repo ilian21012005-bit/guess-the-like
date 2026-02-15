@@ -216,6 +216,34 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 .host-only { display: none !important; }
 .host-only:not(.hidden) { display: block !important; }
 
+/* Preload vidéos */
+#screen-preload { justify-content: center; gap: 1rem; }
+.preload-title {
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+}
+.preload-progress {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+.preload-bar-wrap {
+  width: 100%;
+  max-width: 280px;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.preload-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
 /* Countdown */
 #screen-countdown { justify-content: center; }
 #countdown-number {
@@ -279,25 +307,65 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 }
 .native-video::-webkit-media-controls { display: none !important; }
 .native-video::-webkit-media-controls-enclosure { display: none !important; }
-.btn-volume {
+.volume-control {
   position: absolute;
   bottom: 12px;
   right: 12px;
   z-index: 5;
-  width: 44px;
-  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.6);
+  padding: 6px 10px 6px 14px;
+  border-radius: 24px;
+  backdrop-filter: blur(4px);
+}
+.volume-slider {
+  width: 72px;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255,255,255,0.3);
+  border-radius: 3px;
+  outline: none;
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.volume-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.btn-volume {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   border-radius: 50%;
   border: none;
-  background: rgba(0,0,0,0.6);
+  background: transparent;
   color: #fff;
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s;
 }
-.btn-volume:hover { background: rgba(0,0,0,0.85); }
+.volume-control:hover,
+.btn-volume:hover { background: rgba(0,0,0,0.25); }
+.btn-volume:hover { background: rgba(255,255,255,0.15); }
 .video-crop {
   width: 100%;
   height: 100%;

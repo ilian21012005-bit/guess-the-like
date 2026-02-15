@@ -77,6 +77,15 @@
       <p id="lobby-error" class="error"></p>
     </section>
 
+    <!-- Préchargement des vidéos -->
+    <section id="screen-preload" class="screen hidden">
+      <p id="preload-title" class="preload-title">Préparation des vidéos…</p>
+      <p id="preload-progress" class="preload-progress">0 / 0</p>
+      <div class="preload-bar-wrap" aria-hidden="true">
+        <div id="preload-bar" class="preload-bar" style="width: 0%"></div>
+      </div>
+    </section>
+
     <!-- Jeu : décompte -->
     <section id="screen-countdown" class="screen hidden">
       <div id="countdown-number">3</div>
@@ -88,7 +97,10 @@
       <div id="video-container">
         <p id="video-loading" class="video-loading hidden">Extraction de la vidéo en cours…</p>
         <video id="tiktok-video" class="native-video" playsinline loop muted autoplay preload="auto" referrerpolicy="no-referrer" controlslist="nodownload noplaybackrate"></video>
-        <button type="button" id="btn-volume" class="btn-volume" title="Son on/off" aria-label="Volume">🔇</button>
+        <div class="volume-control" id="volume-control">
+          <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="100" title="Volume" aria-label="Volume" />
+          <button type="button" id="btn-volume" class="btn-volume" title="Son on/off" aria-label="Volume">🔇</button>
+        </div>
         <div class="video-crop video-fallback-embed">
           <iframe id="tiktok-embed" title="TikTok"></iframe>
         </div>

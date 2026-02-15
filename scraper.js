@@ -327,4 +327,111 @@ async function getTikTokMp4Url(videoPageUrl) {
   }
 }
 
-module.exports = { fetchUserLikes, harvestLikes, getTikTokMp4Url, SESSION_DIR };
+/**
+ * Récupère le binaire de la vidéo MP4 via Playwright (contexte navigateur) pour contourner le 403 du CDN TikTok.
+ * Plus lent que getTikTokMp4Url + fetch, à utiliser en secours quand le CDN bloque.
+ * @param {string} videoPageUrl - URL de la page TikTok (ex. https://www.tiktok.com/@user/video/123)
+ * @returns {Promise<{ buffer?: Buffer, contentType?: string, error?: string }>}
+ */
+async function getTikTokMp4Buffer(videoPageUrl) {
+  const url = String(videoPageUrl || '').trim();
+  if (!url.includes('tiktok.com') || !url.includes('/video/')) return { error: 'URL TikTok invalide' };
+  const videoId = getVideoIdFromUrl(url);
+  const pageUrl = videoId ? 'https://www.tiktok.com/embed/v2/' + videoId : url;
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      userAgent: USER_AGENT,
+      viewport: { width: 390, height: 844 },
+      locale: 'fr-FR',
+      ignoreHTTPSErrors: true,
+      extraHTTPHeaders: { 'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8' },
+    });
+    const page = await context.newPage();
+    const mp4Urls = [];
+    page.on('response', (response) => {
+      const u = response.url();
+      const ok = response.status() === 200 || response.status() === 206;
+      if (ok && u.startsWith('http') && (u.includes('.mp4') || u.includes('/video/') || (u.includes('tiktokv') && u.includes('tos')))) {
+        mp4Urls.push(u);
+      }
+    });
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForTimeout(2500);
+    let mp4Url = mp4Urls[0] || null;
+    if (!mp4Url) {
+      mp4Url = await page.evaluate(() => {
+        const v = document.querySelector('video');
+        if (v && (v.currentSrc || v.src)) return v.currentSrc || v.src;
+        const s = document.querySelector('video source');
+        if (s && s.src) return s.src;
+        for (const script of document.querySelectorAll('script')) {
+          const text = script.textContent || '';
+          const m = text.match(/"playAddr"\s*:\s*"((?:[^"\\]|\\.)*)"/) || text.match(/"downloadAddr"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          if (m && m[1]) {
+            const u = m[1].replace(/\\u002F/g, '/').replace(/\\\//g, '/').replace(/\\"/g, '"').replace(/\\u0026/g, '&');
+            if (u.startsWith('http') || u.startsWith('//')) return u.startsWith('//') ? 'https:' + u : u;
+          }
+        }
+        return null;
+      });
+    }
+    if (!mp4Url) {
+      await context.close();
+      await browser.close();
+      return { error: 'URL vidéo non trouvée' };
+    }
+
+    const fullMp4Url = mp4Url.startsWith('//') ? 'https:' + mp4Url : mp4Url;
+    // Même contexte que la page TikTok → Referer/cookies cohérents, évite 403 CDN
+    let response = await context.request.get(fullMp4Url, { timeout: 60000 });
+    if (!response.ok() && response.status() === 403) {
+      await new Promise(r => setTimeout(r, 2500));
+      response = await context.request.get(fullMp4Url, { timeout: 60000 });
+    }
+    if (!response.ok() && response.status() === 403 && pageUrl !== url) {
+      // Réessayer avec la page complète au lieu de l'embed (parfois autre CDN / autre URL)
+      mp4Urls.length = 0;
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(2000);
+      let mp4Url2 = mp4Urls[0] || null;
+      if (!mp4Url2) {
+        mp4Url2 = await page.evaluate(() => {
+          const v = document.querySelector('video');
+          if (v && (v.currentSrc || v.src)) return v.currentSrc || v.src;
+          const s = document.querySelector('video source');
+          if (s && s.src) return s.src;
+          for (const script of document.querySelectorAll('script')) {
+            const text = script.textContent || '';
+            const m = text.match(/"playAddr"\s*:\s*"((?:[^"\\]|\\.)*)"/) || text.match(/"downloadAddr"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            if (m && m[1]) {
+              const u = m[1].replace(/\\u002F/g, '/').replace(/\\\//g, '/').replace(/\\"/g, '"').replace(/\\u0026/g, '&');
+              if (u.startsWith('http') || u.startsWith('//')) return u.startsWith('//') ? 'https:' + u : u;
+            }
+          }
+          return null;
+        });
+      }
+      if (mp4Url2) {
+        const full2 = mp4Url2.startsWith('//') ? 'https:' + mp4Url2 : mp4Url2;
+        response = await context.request.get(full2, { timeout: 60000 });
+      }
+    }
+    const ok = response.ok();
+    const contentType = response.headers()['content-type'] || 'video/mp4';
+    const buffer = await response.body();
+    await context.close();
+    await browser.close();
+
+    if (!ok) {
+      return { error: 'CDN retourne ' + response.status() };
+    }
+    return { buffer, contentType };
+  } catch (err) {
+    try { if (browser) await browser.close(); } catch (_) {}
+    return { error: err.message || 'BUFFER_ERROR' };
+  }
+}
+
+module.exports = { fetchUserLikes, harvestLikes, getTikTokMp4Url, getTikTokMp4Buffer, SESSION_DIR };

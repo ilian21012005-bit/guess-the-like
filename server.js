@@ -9,6 +9,7 @@ const db = require('./db');
 
 // File d'attente pour le secours Playwright : 8 en parallèle (préchargement serveur + requêtes on-demand)
 const PLAYWRIGHT_CONCURRENT = 8;
+let playwrightMissingLogged = false;
 const playwrightQueue = [];
 let playwrightRunning = 0;
 function runPlaywrightQueue() {
@@ -280,7 +281,15 @@ app.get('/api/tiktok-video', async (req, res) => {
         }
         return;
       }
-      console.warn('[tiktok-video] secours Playwright échec:', fallback.error || '');
+      const errMsg = fallback.error || '';
+      if (errMsg.includes('Executable doesn\'t exist') || errMsg.includes('chromium')) {
+        if (!playwrightMissingLogged) {
+          playwrightMissingLogged = true;
+          console.warn('[tiktok-video] Secours Playwright indisponible (Chromium non installé). Vidéos en 403 sur cet hébergement.');
+        }
+      } else {
+        console.warn('[tiktok-video] secours Playwright échec:', errMsg);
+      }
       sendOnce(r.status);
       return;
     }

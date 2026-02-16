@@ -3,6 +3,18 @@ const path = require('path');
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const VIEWPORT = { width: 1280, height: 720 };
+let _playwrightMissingLogged = false;
+function _logPlaywrightMissing(err) {
+  const msg = err && (err.message || String(err));
+  if (msg && (msg.includes('Executable doesn\'t exist') || msg.includes('chromium'))) {
+    if (!_playwrightMissingLogged) {
+      _playwrightMissingLogged = true;
+      console.warn('[scraper] Chromium non installé (Playwright). Exécuter: npx playwright install chromium');
+    }
+    return true;
+  }
+  return false;
+}
 
 /** Dossier où est sauvegardée la session TikTok (cookies/connexion). */
 const SESSION_DIR = path.join(__dirname, '.playwright-tiktok-session');
@@ -322,7 +334,9 @@ async function getTikTokMp4Url(videoPageUrl) {
     return { error: 'URL vidéo non trouvée' };
   } catch (err) {
     try { if (browser) await browser.close(); } catch (_) {}
-    console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (erreur: ' + (err.message || err) + ')');
+    if (!_logPlaywrightMissing(err)) {
+      console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (erreur: ' + (err.message || err) + ')');
+    }
     return { error: err.message || 'EXTRACT_ERROR' };
   }
 }
@@ -430,6 +444,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     return { buffer, contentType };
   } catch (err) {
     try { if (browser) await browser.close(); } catch (_) {}
+    _logPlaywrightMissing(err);
     return { error: err.message || 'BUFFER_ERROR' };
   }
 }

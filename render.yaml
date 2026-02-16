@@ -5,7 +5,9 @@ services:
   - type: web
     name: guess-the-like
     runtime: node
-    buildCommand: npm install
+    # Chromium nécessaire pour contourner le 403 du CDN TikTok (secours Playwright).
+    # Si le build échoue (mémoire / quota), passer à un plan payant ou retirer "&& npx playwright install chromium".
+    buildCommand: npm install && npx playwright install chromium
     startCommand: npm start
     envVars:
       - key: NODE_VERSION

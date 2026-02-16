@@ -63,6 +63,7 @@ function fetchOneVideoForPreload(pageUrl) {
         return fallback.buffer ? { buffer: fallback.buffer, contentType: fallback.contentType || 'video/mp4' } : null;
       }
       clearTimeout(to);
+      console.log('[tiktok-video] preload fetch CDN: ' + r.status);
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         return { buffer: buf, contentType: r.headers.get('Content-Type') || 'video/mp4' };
@@ -264,6 +265,7 @@ app.get('/api/tiktok-video', async (req, res) => {
       return;
     }
     clearTimeout(to);
+    console.log('[tiktok-video] fetch CDN: ' + r.status + ' (' + (Date.now() - t0) + ' ms)');
     const tTotal = Date.now() - t0;
     if (!r.ok) {
       console.warn('[tiktok-video] CDN TikTok a retourné ' + r.status + ' — secours Playwright…');

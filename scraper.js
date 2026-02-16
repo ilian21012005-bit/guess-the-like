@@ -245,7 +245,7 @@ async function getTikTokMp4Url(videoPageUrl) {
     const tEmbed0 = Date.now();
     const embedUrl = 'https://www.tiktok.com/embed/v2/' + videoId;
     let embedUrlResult = await tryFetch(embedUrl);
-    console.log('[scraper] fetch embed: ' + (Date.now() - tEmbed0) + ' ms' + (embedUrlResult ? ' (OK)' : ' (échec)'));
+    if (embedUrlResult) console.log('[scraper] fetch embed: ' + (Date.now() - tEmbed0) + ' ms (OK)');
     if (embedUrlResult && (embedUrlResult.startsWith('http') || embedUrlResult.startsWith('//'))) {
       console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (embed)');
       return { url: embedUrlResult.startsWith('//') ? 'https:' + embedUrlResult : embedUrlResult };

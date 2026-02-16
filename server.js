@@ -195,7 +195,7 @@ app.get('/api/tiktok-video', async (req, res) => {
         res.setHeader('Content-Length', cached.buffer.length);
         return res.status(200).end(cached.buffer);
       }
-      return res.status(404).end();
+      // Cache null (préchargement échoué, ex. Render sans Playwright) → fallback extraction on-demand
     }
   }
   let trimmed = pageUrl.trim();

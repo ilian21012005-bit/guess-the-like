@@ -7,8 +7,8 @@ const { Server } = require('socket.io');
 const { harvestLikes, getTikTokMp4Url, getTikTokMp4Buffer } = require('./scraper');
 const db = require('./db');
 
-// File d'attente pour le secours Playwright : 8 en parallèle (préchargement serveur + requêtes on-demand)
-const PLAYWRIGHT_CONCURRENT = 8;
+// File d'attente pour le secours Playwright. Sur Render 512MB, mettre PLAYWRIGHT_CONCURRENT=4 (ou 2) dans les env.
+const PLAYWRIGHT_CONCURRENT = parseInt(process.env.PLAYWRIGHT_CONCURRENT, 10) || 8;
 let playwrightMissingLogged = false;
 const playwrightQueue = [];
 let playwrightRunning = 0;

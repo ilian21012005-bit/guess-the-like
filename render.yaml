@@ -12,6 +12,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
-      # Skip getTikTokMp4Url + fetch (toujours 403) → Playwright direct, gain de temps.
+      # Skip getTikTokMp4Url + fetch (toujours 403) → Playwright direct.
       - key: USE_PLAYWRIGHT_DIRECT
         value: "1"
+      # Moins de workers Playwright pour tenir en 512MB (évite OOM).
+      - key: PLAYWRIGHT_CONCURRENT
+        value: "4"

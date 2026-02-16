@@ -214,21 +214,6 @@
     });
   });
 
-  $('btn-ready').addEventListener('click', () => {
-    $('lobby-status').textContent = 'Récupération de tes likes en cours…';
-    setError('lobby-error', '');
-    socket.emit('set_ready', { code: roomCode }, (res) => {
-      if (res?.error) {
-        $('lobby-status').textContent = '';
-        if (res.error === 'PRIVACY_LOCKED') setError('lobby-error', 'Likes en privé. Passe-les en public sur TikTok puis réessaie.');
-        else if (res.error === 'LOGIN_REQUIRED') setError('lobby-error', 'TikTok affiche les likes seulement quand on est connecté. Utilise l’import manuel (voir ci-dessous).');
-        else setError('lobby-error', res.error || 'Erreur');
-        return;
-      }
-      $('lobby-status').textContent = res.count ? `✓ ${res.count} likes récupérés. Tu peux repasser en privé.` : '✓ C\'est bon.';
-    });
-  });
-
   socket.on('harvest_done', (data) => {
     $('lobby-status').textContent = (data.count ? `✓ ${data.count} likes récupérés.` : '✓ C\'est bon.') + ' Tu peux repasser en privé.';
   });

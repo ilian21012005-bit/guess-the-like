@@ -1,0 +1,14 @@
+node_modules
+.git
+.env
+.env.*
+*.log
+.playwright-tiktok-session
+.chrome-debug-profile
+.cursor
+.DS_Store
+render.yaml
+DEPLOY-RENDER.md
+CR-multi-utilisateurs.md
+*.md
+!README.md

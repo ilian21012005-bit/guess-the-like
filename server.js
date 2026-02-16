@@ -63,28 +63,37 @@ function runServerPreload(roomCode, rounds) {
   const toPreload = Math.min(PRELOAD_INITIAL_VIDEOS, total);
   let completed = 0;
   let gameStartedEmitted = false;
-  const jobs = rounds.slice(0, toPreload).map((r, i) => ({ roomCode, index: i, url: r.video_url }));
+  let phase2Queued = false;
+  // Phase 1 : seulement les jobs 0 et 1 pour qu'ils aient toute la capacité (pas de concurrence avec 6 autres).
+  const jobs = rounds.slice(0, Math.min(2, toPreload)).map((r, i) => ({ roomCode, index: i, url: r.video_url }));
   const processNext = async () => {
     const job = jobs.shift();
     if (!job) return;
     const { roomCode: rc, index, url } = job;
-    const result = await fetchOneVideoForPreload(url);
+    let result = await fetchOneVideoForPreload(url);
+    if (!result && index <= 1) {
+      result = await fetchOneVideoForPreload(url);
+    }
     const entry = serverPreloadCache.get(rc);
     if (entry) entry.rounds[index] = result;
     completed++;
     io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total: toPreload });
-    const r = getRoomByCode(rc);
-    const canStart = completed >= 2 && entry?.rounds[0]?.buffer && entry?.rounds[1]?.buffer;
-    const mustStart = completed >= toPreload;
-    if (!gameStartedEmitted && r && r.status === 'preparing' && (canStart || mustStart)) {
-      gameStartedEmitted = true;
-      r.status = 'playing';
-      const playersForClient = getPlayerListForRoom(r);
-      io.to(rc).emit('game_started', { players: playersForClient, totalRounds: total });
+    if (completed >= 2 && !phase2Queued) {
+      phase2Queued = true;
+      for (let i = 2; i < toPreload; i++) {
+        jobs.push({ roomCode: rc, index: i, url: rounds[i].video_url });
+      }
+      const r = getRoomByCode(rc);
+      if (!gameStartedEmitted && r && r.status === 'preparing') {
+        gameStartedEmitted = true;
+        r.status = 'playing';
+        const playersForClient = getPlayerListForRoom(r);
+        io.to(rc).emit('game_started', { players: playersForClient, totalRounds: total });
+      }
     }
     processNext();
   };
-  for (let i = 0; i < Math.min(SERVER_PRELOAD_WORKERS, toPreload); i++) processNext();
+  for (let i = 0; i < Math.min(2, jobs.length); i++) processNext();
 }
 
 const app = express();
@@ -605,7 +614,8 @@ io.on('connection', (socket) => {
     room.players.forEach(p => { p.score = 0; p.streak = 0; p.correctCount = 0; p.maxStreak = 0; });
     const playersForClient = getPlayerListForRoom(room);
     const roundUrls = rounds.map(r => r.video_url);
-    io.to(roomCode).emit('game_preparing', { roundUrls, totalRounds: rounds.length, players: playersForClient });
+    const preloadTotal = Math.min(PRELOAD_INITIAL_VIDEOS, rounds.length);
+    io.to(roomCode).emit('game_preparing', { roundUrls, totalRounds: rounds.length, preloadTotal, players: playersForClient });
     ack?.({ ok: true });
     runServerPreload(roomCode, rounds);
   });

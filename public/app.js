@@ -222,12 +222,13 @@
 
   socket.on('game_preparing', (data) => {
     const total = data.totalRounds || (data.roundUrls || []).length;
+    const preloadTotal = data.preloadTotal != null ? data.preloadTotal : total;
     if (total === 0) return;
     preloadCache.clear();
     const progressEl = $('preload-progress');
     const barEl = $('preload-bar');
     show('screen-preload');
-    if (progressEl) progressEl.textContent = '0 / ' + total;
+    if (progressEl) progressEl.textContent = '0 / ' + preloadTotal;
     if (barEl) barEl.style.width = '0%';
   });
 

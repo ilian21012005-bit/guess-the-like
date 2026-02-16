@@ -121,15 +121,26 @@ async function fetchUserLikes(username, limit = 100, options = {}) {
     }
 
     const profileUrl = `https://www.tiktok.com/@${cleanUsername}`;
-    await page.goto(profileUrl, { waitUntil: 'load', timeout: 30000 });
+    let navOk = true;
+    try {
+      await page.goto(profileUrl, { waitUntil: 'load', timeout: 30000 });
+    } catch (e) {
+      navOk = false;
+      console.warn('[scraper] fetchUserLikes page.goto failed:', e?.message || e);
+    }
+    if (!navOk) {
+      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] context.close:', e2?.message); } try { if (browser) await browser.close(); } catch (e2) { console.warn('[scraper] browser.close:', e2?.message); } }
+      return { error: 'NAVIGATION_FAILED' };
+    }
     await page.waitForTimeout(3000);
 
     const finalUrl = page.url();
     if (!finalUrl.includes(cleanUsername)) {
-      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch(_){} try { if (browser) await browser.close(); } catch(_){} }
+      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] context.close:', e2?.message); } try { if (browser) await browser.close(); } catch (e2) { console.warn('[scraper] browser.close:', e2?.message); } }
       return { error: 'LOGIN_REQUIRED' };
     }
 
+    // En cas d'erreur evaluate (page pas prête, etc.), on considère le profil comme privé (safe default).
     const isPrivate = await page.evaluate(() => {
       const lock = document.querySelector('[data-e2e="liked-tab-lock"]');
       if (lock) return true;
@@ -139,7 +150,7 @@ async function fetchUserLikes(username, limit = 100, options = {}) {
     }).catch(() => true);
 
     if (isPrivate) {
-      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch(_){} try { if (browser) await browser.close(); } catch(_){} }
+      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] context.close:', e2?.message); } try { if (browser) await browser.close(); } catch (e2) { console.warn('[scraper] browser.close:', e2?.message); } }
       return { error: 'PRIVACY_LOCKED' };
     }
 
@@ -177,7 +188,7 @@ async function fetchUserLikes(username, limit = 100, options = {}) {
       } catch (_) {}
     }
     if (!clicked) {
-      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch(_){} try { if (browser) await browser.close(); } catch(_){} }
+      if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] context.close:', e2?.message); } try { if (browser) await browser.close(); } catch (e2) { console.warn('[scraper] browser.close:', e2?.message); } }
       return { error: 'Liked tab not found' };
     }
 
@@ -201,14 +212,14 @@ async function fetchUserLikes(username, limit = 100, options = {}) {
       await page.waitForTimeout(scrollDelay);
     }
 
-    if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch(_){} try { if (browser) await browser.close(); } catch(_){} }
+    if (connectedViaCdp) await browser?.close(); else { try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] context.close:', e2?.message); } try { if (browser) await browser.close(); } catch (e2) { console.warn('[scraper] browser.close:', e2?.message); } }
 
     const list = Array.from(videos).slice(0, limit);
     return { videos: list };
   } catch (err) {
     try {
       if (connectedViaCdp) await browser?.close(); else { if (context) await context.close(); if (browser) await browser.close(); }
-    } catch (_) {}
+    } catch (e2) { console.warn('[scraper] cleanup on error:', e2?.message); }
     return { error: err.message || 'SCRAPE_ERROR' };
   }
 }
@@ -255,6 +266,7 @@ async function getTikTokMp4Url(videoPageUrl) {
   const videoId = getVideoIdFromUrl(url);
   const totalStart = Date.now();
 
+  // Retourne l'URL MP4 extraite du HTML ou null si fetch/parse échoue (pas d'erreur propagée).
   const tryFetch = async (targetUrl) => {
     const controller = new AbortController();
     const to = setTimeout(() => controller.abort(), 6000);
@@ -315,7 +327,13 @@ async function getTikTokMp4Url(videoPageUrl) {
 
     const tryPage = async (pageUrl) => {
       mp4Urls.length = 0;
-      await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      let navOk = true;
+      try {
+        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      } catch (_) {
+        navOk = false;
+      }
+      if (!navOk) return null;
       await page.waitForTimeout(1500);
       const fromNetwork = mp4Urls[0] || null;
       if (fromNetwork) return fromNetwork;
@@ -349,7 +367,7 @@ async function getTikTokMp4Url(videoPageUrl) {
     console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (non trouvée)');
     return { error: 'URL vidéo non trouvée' };
   } catch (err) {
-    try { if (browser) await browser.close(); } catch (_) {}
+    try { if (browser) await browser.close(); } catch (e2) { console.warn('[scraper] getTikTokMp4Url browser.close:', e2?.message); }
     if (!_logPlaywrightMissing(err)) {
       console.log('[scraper] getTikTokMp4Url total: ' + (Date.now() - totalStart) + ' ms (erreur: ' + (err.message || err) + ')');
     }
@@ -422,7 +440,16 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     if (!response.ok() && response.status() === 403 && pageUrl !== url) {
       // Réessayer avec la page complète au lieu de l'embed (parfois autre CDN / autre URL)
       mp4Urls.length = 0;
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      let fallbackNavOk = true;
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      } catch (_) {
+        fallbackNavOk = false;
+      }
+      if (!fallbackNavOk) {
+        await context.close();
+        return { error: 'URL vidéo non trouvée' };
+      }
       await page.waitForTimeout(1500);
       let mp4Url2 = mp4Urls[0] || null;
       if (!mp4Url2) {
@@ -457,7 +484,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     }
     return { buffer, contentType };
   } catch (err) {
-    try { if (context) await context.close(); } catch (_) {}
+    try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] getTikTokMp4Buffer context.close:', e2?.message); }
     _logPlaywrightMissing(err);
     return { error: err.message || 'BUFFER_ERROR' };
   }

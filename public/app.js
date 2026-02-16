@@ -312,7 +312,9 @@
             videoEl.style.display = 'block';
             if (volumeControl) volumeControl.style.display = 'flex';
             if (window.applyStoredVolumeToVideo) window.applyStoredVolumeToVideo();
-            videoEl.play().catch(() => {});
+            videoEl.play().catch(() => {
+              if (videoEl) videoEl.title = 'Clique pour lancer la lecture';
+            });
           };
           videoEl.onerror = function () {
             if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
@@ -555,6 +557,8 @@
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('[app] Service Worker registration failed:', err?.message || err);
+    });
   }
 })();

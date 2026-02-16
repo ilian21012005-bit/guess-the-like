@@ -4,14 +4,14 @@ const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL })
   : null;
 
+/**
+ * Exécute une requête SQL. En cas d'erreur DB, propage l'erreur (fail-hard) pour ne pas masquer les pannes.
+ * Retourne null uniquement quand DATABASE_URL n'est pas défini (mode sans DB).
+ */
 async function query(text, params) {
   if (!pool) return null;
-  try {
-    return await pool.query(text, params);
-  } catch (e) {
-    console.error('DB error', e.message);
-    return null;
-  }
+  const result = await pool.query(text, params);
+  return result;
 }
 
 async function getOrCreatePlayer(username, tiktokUsername = null, avatarUrl = null) {

@@ -1,4 +1,4 @@
-try { require('dotenv').config(); } catch (_) {}
+try { require('dotenv').config(); } catch (e) { console.warn('[env] dotenv non chargé:', e?.message || e); }
 const path = require('path');
 const http = require('http');
 const { Readable } = require('stream');
@@ -8,6 +8,7 @@ const { harvestLikes, getTikTokMp4Url, getTikTokMp4Buffer } = require('./scraper
 const db = require('./db');
 
 // File d'attente pour le secours Playwright. Sur Render 512MB, mettre PLAYWRIGHT_CONCURRENT=4 (ou 2) dans les env.
+// Valeurs par défaut intentionnels si les variables ne sont pas définies.
 const PLAYWRIGHT_CONCURRENT = parseInt(process.env.PLAYWRIGHT_CONCURRENT, 10) || 8;
 let playwrightMissingLogged = false;
 const playwrightQueue = [];
@@ -38,7 +39,7 @@ function enqueuePlaywrightFallback(pageUrl) {
 const serverPreloadCache = new Map();
 const SERVER_PRELOAD_WORKERS = 8;
 const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 120000; // 120s pour Playwright (ex. Render 512MB)
-// Précharger seulement les N premières vidéos pour lancer la partie vite ; le reste en on-demand.
+// Précharger seulement les N premières vidéos pour lancer la partie vite ; le reste en on-demand (env: PRELOAD_INITIAL_VIDEOS).
 const PRELOAD_INITIAL_VIDEOS = parseInt(process.env.PRELOAD_INITIAL_VIDEOS, 10) || 10;
 
 // Préchargement : appel direct à Playwright (évite getTikTokMp4Url + fetch 403 inutiles).
@@ -50,7 +51,12 @@ function fetchOneVideoForPreload(pageUrl) {
       const fallback = await enqueuePlaywrightFallback(trimmed);
       return fallback.buffer ? { buffer: fallback.buffer, contentType: fallback.contentType || 'video/mp4' } : null;
     })();
-    Promise.race([work, timeoutPromise]).then(resolve).catch(() => resolve(null));
+    Promise.race([work, timeoutPromise])
+      .then(resolve)
+      .catch((err) => {
+        console.warn('[preload] fetchOneVideoForPreload timeout/erreur:', err?.message || err);
+        resolve(null);
+      });
   });
 }
 
@@ -75,7 +81,10 @@ function runServerPreload(roomCode, rounds) {
       result = await fetchOneVideoForPreload(url);
     }
     const entry = serverPreloadCache.get(rc);
-    if (entry) entry.rounds[index] = result;
+    if (entry) {
+      entry.rounds[index] = result;
+      if (!result) console.warn('[preload] round %s stocké null (timeout ou erreur)', index);
+    }
     completed++;
     io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total: toPreload });
     if (completed >= 2 && !phase2Queued) {
@@ -110,6 +119,7 @@ const VIDEO_RATE_LIMIT_WINDOW = parseInt(process.env.VIDEO_RATE_LIMIT_WINDOW_MS,
 const VIDEO_RATE_LIMIT_MAX = parseInt(process.env.VIDEO_RATE_LIMIT_MAX, 10) || 80;
 function checkVideoRateLimit(ip) {
   const now = Date.now();
+  // Création explicite du bucket si absent (IP peut être "unknown" si trust proxy non configuré).
   let bucket = videoRateLimit.get(ip) || { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
   if (now >= bucket.resetAt) bucket = { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
   bucket.count++;
@@ -127,7 +137,8 @@ function cleanupBookmarkletTokens() {
 
 // API pour le bookmarklet (récupération likes depuis la page TikTok du joueur)
 app.post('/api/import-likes-from-bookmarklet', (req, res) => {
-  const { token, urls } = req.body || {};
+  const body = req.body != null ? req.body : {};
+  const { token, urls } = body;
   cleanupBookmarkletTokens();
   const data = token ? bookmarkletTokens.get(token) : null;
   if (!data) return res.status(400).json({ error: 'Lien expiré ou invalide. Régénère le lien dans le lobby.' });
@@ -194,13 +205,18 @@ app.get('/api/tiktok-video', async (req, res) => {
   let trimmed = pageUrl.trim();
   try {
     if (trimmed.includes('%')) trimmed = decodeURIComponent(trimmed);
-  } catch (_) {}
+  } catch (_) {
+    console.warn('[tiktok-video] URL mal formée (decodeURIComponent):', pageUrl.slice(0, 80));
+    return res.status(400).end();
+  }
   let hostOk = false;
   try {
     const u = new URL(trimmed);
     const host = (u.hostname || '').toLowerCase();
     if (host === 'tiktok.com' || host.endsWith('.tiktok.com') || host === 'vm.tiktok.com' || host === 'vt.tiktok.com') hostOk = true;
-  } catch (_) {}
+  } catch (_) {
+    // Si new URL échoue mais que la chaîne ressemble à TikTok, on autorise (fallback intentionnel).
+  }
   if (!hostOk && !/tiktok\.com/.test(trimmed)) {
     console.warn('[tiktok-video] 403 URL non autorisée. Début reçu:', pageUrl.slice(0, 80));
     return res.status(403).end();
@@ -408,7 +424,15 @@ io.on('connection', (socket) => {
   socket.on('create_room', async (data, ack) => {
     const { username, tiktokUsername, avatarUrl } = data || {};
     if (!username?.trim()) return ack?.({ error: 'Username required' });
-    const player = db.pool ? await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) : { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
+    let player = { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
+    if (db.pool) {
+      try {
+        player = await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) || player;
+      } catch (err) {
+        console.error('[create_room] getOrCreatePlayer failed:', err?.message || err);
+        return ack?.({ error: 'Erreur base de données. Réessaie ou lance sans DATABASE_URL.' });
+      }
+    }
     const playerId = player?.id ?? socket.id;
     if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.length > 500000) return ack?.({ error: 'Image de profil trop lourde (max ~500 Ko).' });
     const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
@@ -416,8 +440,13 @@ io.on('connection', (socket) => {
     while (rooms.has(code)) code = generateCode();
     let roomId = null;
     if (db.pool) {
-      const created = await db.createRoom(code);
-      if (created) roomId = created.id;
+      try {
+        const created = await db.createRoom(code);
+        if (created) roomId = created.id;
+      } catch (err) {
+        console.error('[create_room] createRoom failed:', err?.message || err);
+        return ack?.({ error: 'Erreur base de données. Réessaie.' });
+      }
     }
     const room = {
       roomId,
@@ -429,7 +458,15 @@ io.on('connection', (socket) => {
       lastActivity: Date.now(),
     };
     rooms.set(code, room);
-    if (db.pool && roomId) await db.addPlayerToRoom(roomId, playerId, socket.id);
+    if (db.pool && roomId) {
+      try {
+        await db.addPlayerToRoom(roomId, playerId, socket.id);
+      } catch (err) {
+        console.error('[create_room] addPlayerToRoom failed:', err?.message || err);
+        rooms.delete(code);
+        return ack?.({ error: 'Erreur base de données. Réessaie.' });
+      }
+    }
     socket.join(code);
     touchRoom(room);
     ack?.({ code, playerId, players: getPlayerListForRoom(room) });
@@ -443,12 +480,28 @@ io.on('connection', (socket) => {
     if (room.status !== 'lobby') return ack?.({ error: 'Game already started' });
     if (!username?.trim()) return ack?.({ error: 'Username required' });
     if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.length > 500000) return ack?.({ error: 'Image de profil trop lourde (max ~500 Ko).' });
-    const player = db.pool ? await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) : { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
+    let player = { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
+    if (db.pool) {
+      try {
+        player = await db.getOrCreatePlayer(username.trim(), (tiktokUsername || username).trim()) || player;
+      } catch (err) {
+        console.error('[join_room] getOrCreatePlayer failed:', err?.message || err);
+        return ack?.({ error: 'Erreur base de données. Réessaie ou lance sans DATABASE_URL.' });
+      }
+    }
     const playerId = player?.id ?? socket.id;
     const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
     if (room.players.some(p => p.playerId === playerId || p.socketId === socket.id)) return ack?.({ error: 'Already in room' });
     room.players.push({ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: avatar, isReady: false, score: 0, streak: 0 });
-    if (db.pool && room.roomId) await db.addPlayerToRoom(room.roomId, playerId, socket.id);
+    if (db.pool && room.roomId) {
+      try {
+        await db.addPlayerToRoom(room.roomId, playerId, socket.id);
+      } catch (err) {
+        console.error('[join_room] addPlayerToRoom failed:', err?.message || err);
+        room.players.pop();
+        return ack?.({ error: 'Erreur base de données. Réessaie.' });
+      }
+    }
     socket.join(roomCode);
     touchRoom(room);
     io.to(roomCode).emit('room_updated', { players: getPlayerListForRoom(room) });
@@ -511,7 +564,14 @@ io.on('connection', (socket) => {
       io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
       return ack?.({ error: 'Aucun like récupéré. Vérifie ton @ TikTok et que tes likes sont bien en public.' });
     }
-    if (db.pool && me.playerId) await db.saveLikes(me.playerId, result.videos);
+    if (db.pool && me.playerId) {
+      try {
+        await db.saveLikes(me.playerId, result.videos);
+      } catch (err) {
+        console.error('[set_ready] saveLikes failed:', err?.message || err);
+        // On continue : les likes sont quand même stockés en mémoire ci-dessous.
+      }
+    }
     if (me.playerId) {
       const key = (room.code || '').toUpperCase();
       if (!roomLikes.has(key)) roomLikes.set(key, {});
@@ -582,8 +642,13 @@ io.on('connection', (socket) => {
     const played = roomPlayed.get(roomCode);
     let rounds = [];
     if (db.pool) {
-      const fromDb = await db.getVideosForRoom(roomCode, playerIds, totalRounds);
-      rounds = fromDb.filter(r => !played.has(r.id));
+      try {
+        const fromDb = await db.getVideosForRoom(roomCode, playerIds, totalRounds);
+        rounds = fromDb.filter(r => !played.has(r.id));
+      } catch (err) {
+        console.error('[start_game] getVideosForRoom failed:', err?.message || err);
+        // Fallback sur les likes en mémoire.
+      }
     }
     if (!rounds.length) {
       const memLikes = roomLikes.get((roomCode || '').toUpperCase()) || {};

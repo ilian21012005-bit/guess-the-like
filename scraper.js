@@ -16,6 +16,22 @@ function _logPlaywrightMissing(err) {
   return false;
 }
 
+// Navigateur partagé pour getTikTokMp4Buffer (évite un launch par vidéo, ~5–10 s gagnés par appel).
+let _sharedBrowser = null;
+let _sharedBrowserPromise = null;
+async function _getSharedBrowser() {
+  if (_sharedBrowser) return _sharedBrowser;
+  if (_sharedBrowserPromise) return _sharedBrowserPromise;
+  _sharedBrowserPromise = chromium.launch({ headless: true }).then((b) => {
+    _sharedBrowser = b;
+    return b;
+  }).catch((err) => {
+    _sharedBrowserPromise = null;
+    throw err;
+  });
+  return _sharedBrowserPromise;
+}
+
 /** Dossier où est sauvegardée la session TikTok (cookies/connexion). */
 const SESSION_DIR = path.join(__dirname, '.playwright-tiktok-session');
 /** Si défini (ex. ton profil Chrome), on l'utilise pour launchPersistentContext. */
@@ -300,7 +316,7 @@ async function getTikTokMp4Url(videoPageUrl) {
     const tryPage = async (pageUrl) => {
       mp4Urls.length = 0;
       await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(3500);
+      await page.waitForTimeout(1500);
       const fromNetwork = mp4Urls[0] || null;
       if (fromNetwork) return fromNetwork;
       return await page.evaluate(() => {
@@ -352,10 +368,10 @@ async function getTikTokMp4Buffer(videoPageUrl) {
   if (!url.includes('tiktok.com') || !url.includes('/video/')) return { error: 'URL TikTok invalide' };
   const videoId = getVideoIdFromUrl(url);
   const pageUrl = videoId ? 'https://www.tiktok.com/embed/v2/' + videoId : url;
-  let browser;
+  let context;
   try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
+    const browser = await _getSharedBrowser();
+    context = await browser.newContext({
       userAgent: USER_AGENT,
       viewport: { width: 390, height: 844 },
       locale: 'fr-FR',
@@ -372,7 +388,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
       }
     });
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(1500);
     let mp4Url = mp4Urls[0] || null;
     if (!mp4Url) {
       mp4Url = await page.evaluate(() => {
@@ -393,7 +409,6 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     }
     if (!mp4Url) {
       await context.close();
-      await browser.close();
       return { error: 'URL vidéo non trouvée' };
     }
 
@@ -401,14 +416,14 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     // Même contexte que la page TikTok → Referer/cookies cohérents, évite 403 CDN
     let response = await context.request.get(fullMp4Url, { timeout: 60000 });
     if (!response.ok() && response.status() === 403) {
-      await new Promise(r => setTimeout(r, 2500));
+      await new Promise(r => setTimeout(r, 1500));
       response = await context.request.get(fullMp4Url, { timeout: 60000 });
     }
     if (!response.ok() && response.status() === 403 && pageUrl !== url) {
       // Réessayer avec la page complète au lieu de l'embed (parfois autre CDN / autre URL)
       mp4Urls.length = 0;
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(1500);
       let mp4Url2 = mp4Urls[0] || null;
       if (!mp4Url2) {
         mp4Url2 = await page.evaluate(() => {
@@ -436,14 +451,13 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     const contentType = response.headers()['content-type'] || 'video/mp4';
     const buffer = await response.body();
     await context.close();
-    await browser.close();
 
     if (!ok) {
       return { error: 'CDN retourne ' + response.status() };
     }
     return { buffer, contentType };
   } catch (err) {
-    try { if (browser) await browser.close(); } catch (_) {}
+    try { if (context) await context.close(); } catch (_) {}
     _logPlaywrightMissing(err);
     return { error: err.message || 'BUFFER_ERROR' };
   }

@@ -38,6 +38,8 @@ function enqueuePlaywrightFallback(pageUrl) {
 const serverPreloadCache = new Map();
 const SERVER_PRELOAD_WORKERS = 8;
 const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 120000; // 120s pour Playwright (ex. Render 512MB)
+// Précharger seulement les N premières vidéos pour lancer la partie vite ; le reste en on-demand.
+const PRELOAD_INITIAL_VIDEOS = parseInt(process.env.PRELOAD_INITIAL_VIDEOS, 10) || 10;
 
 // Préchargement : appel direct à Playwright (évite getTikTokMp4Url + fetch 403 inutiles).
 function fetchOneVideoForPreload(pageUrl) {
@@ -58,8 +60,9 @@ function runServerPreload(roomCode, rounds) {
   serverPreloadCache.set(roomCode, cacheEntry);
   const room = getRoomByCode(roomCode);
   if (!room) return;
+  const toPreload = Math.min(PRELOAD_INITIAL_VIDEOS, total);
   let completed = 0;
-  const jobs = rounds.map((r, i) => ({ roomCode, index: i, url: r.video_url }));
+  const jobs = rounds.slice(0, toPreload).map((r, i) => ({ roomCode, index: i, url: r.video_url }));
   const processNext = async () => {
     const job = jobs.shift();
     if (!job) return;
@@ -68,8 +71,8 @@ function runServerPreload(roomCode, rounds) {
     const entry = serverPreloadCache.get(rc);
     if (entry) entry.rounds[index] = result;
     completed++;
-    io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total });
-    if (completed >= total) {
+    io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total: toPreload });
+    if (completed >= toPreload) {
       const r = getRoomByCode(rc);
       if (r && r.status === 'preparing') {
         r.status = 'playing';
@@ -79,7 +82,7 @@ function runServerPreload(roomCode, rounds) {
     }
     processNext();
   };
-  for (let i = 0; i < Math.min(SERVER_PRELOAD_WORKERS, total); i++) processNext();
+  for (let i = 0; i < Math.min(SERVER_PRELOAD_WORKERS, toPreload); i++) processNext();
 }
 
 const app = express();

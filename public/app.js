@@ -221,8 +221,7 @@
   });
 
   socket.on('game_preparing', (data) => {
-    const roundUrls = data.roundUrls || [];
-    const total = data.totalRounds || roundUrls.length;
+    const total = data.totalRounds || (data.roundUrls || []).length;
     if (total === 0) return;
     preloadCache.clear();
     const progressEl = $('preload-progress');
@@ -230,62 +229,16 @@
     show('screen-preload');
     if (progressEl) progressEl.textContent = '0 / ' + total;
     if (barEl) barEl.style.width = '0%';
+  });
 
-    let loaded = 0;
-    var allDoneCalled = false;
-    function onAllDone() {
-      if (allDoneCalled) return;
-      allDoneCalled = true;
-      if (isHost) socket.emit('preload_done', { code: roomCode });
-    }
-    function updateProgress() {
-      loaded++;
-      if (progressEl) progressEl.textContent = loaded + ' / ' + total;
-      if (barEl) barEl.style.width = Math.round((loaded / total) * 100) + '%';
-      if (loaded >= total) onAllDone();
-    }
-
-    if (roundUrls.length === 0) {
-      onAllDone();
-      return;
-    }
-
-    var PRELOAD_REQUEST_TIMEOUT_MS = 25000;
-    var CONCURRENT = 3;
-    var nextIndex = 0;
-    var inFlight = 0;
-    function runOne() {
-      if (nextIndex >= roundUrls.length) {
-        if (inFlight === 0) onAllDone();
-        return;
-      }
-      var videoUrl = roundUrls[nextIndex++];
-      inFlight++;
-      var apiUrl = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
-      var abortController = new AbortController();
-      var timeoutId = setTimeout(function () { abortController.abort(); }, PRELOAD_REQUEST_TIMEOUT_MS);
-      fetch(apiUrl, { signal: abortController.signal })
-        .then(function (res) {
-          clearTimeout(timeoutId);
-          if (res.ok) return res.blob();
-          preloadCache.set(videoUrl, null);
-          return null;
-        })
-        .then(function (blob) {
-          if (blob) preloadCache.set(videoUrl, blob);
-          updateProgress();
-          inFlight--;
-          runOne();
-        })
-        .catch(function () {
-          clearTimeout(timeoutId);
-          preloadCache.set(videoUrl, null);
-          updateProgress();
-          inFlight--;
-          runOne();
-        });
-    }
-    for (var i = 0; i < Math.min(CONCURRENT, roundUrls.length); i++) runOne();
+  socket.on('preload_progress', (data) => {
+    if ((data.roomCode || '').toUpperCase() !== roomCode) return;
+    const progressEl = $('preload-progress');
+    const barEl = $('preload-bar');
+    const loaded = data.loaded || 0;
+    const total = data.total || 1;
+    if (progressEl) progressEl.textContent = loaded + ' / ' + total;
+    if (barEl) barEl.style.width = Math.round((loaded / total) * 100) + '%';
   });
 
   socket.on('game_started', (data) => {
@@ -373,7 +326,7 @@
             applyBlob(cached);
           }
         } else {
-          const apiUrl = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl);
+          const apiUrl = '/api/tiktok-video?url=' + encodeURIComponent(videoUrl) + '&room=' + encodeURIComponent(roomCode) + '&index=' + roundIndex;
           fetch(apiUrl)
             .then(function (res) {
               if (!res.ok) {
@@ -393,15 +346,15 @@
     const isOwner = myPlayerId === ownerId;
     const isSolo = (players || []).length === 1;
     const canVote = isSolo || !isOwner;
-    $('wait-owner').classList.toggle('hidden', canVote);
+    const waitOwnerEl = $('wait-owner');
+    if (waitOwnerEl) {
+      waitOwnerEl.classList.add('hidden');
+      if (isOwner && !isSolo) waitOwnerEl.classList.remove('hidden');
+    }
     const ownerHint = $('vote-owner-hint');
     const voteFeedback = $('vote-feedback');
     if (ownerHint) ownerHint.classList.add('hidden');
     if (voteFeedback) voteFeedback.classList.add('hidden');
-    if (canVote && !isSolo) {
-      const owner = (players || []).find(p => p.playerId === ownerId);
-      if (ownerHint && owner) { ownerHint.textContent = 'C\'est le like de ' + owner.username + ' — devine qui a liké !'; ownerHint.classList.remove('hidden'); }
-    }
     const container = $('vote-buttons');
     container.classList.toggle('hidden', !canVote);
     if (canVote) {

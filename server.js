@@ -7,8 +7,8 @@ const { Server } = require('socket.io');
 const { harvestLikes, getTikTokMp4Url, getTikTokMp4Buffer } = require('./scraper');
 const db = require('./db');
 
-// File d'attente pour le secours Playwright : 2 en parallèle pour réduire le temps de setup
-const PLAYWRIGHT_CONCURRENT = 2;
+// File d'attente pour le secours Playwright : 8 en parallèle (préchargement serveur + requêtes on-demand)
+const PLAYWRIGHT_CONCURRENT = 8;
 const playwrightQueue = [];
 let playwrightRunning = 0;
 function runPlaywrightQueue() {
@@ -33,17 +33,89 @@ function enqueuePlaywrightFallback(pageUrl) {
   });
 }
 
+// Cache préchargement serveur : roomCode -> { rounds: Array<{buffer, contentType}|null>, createdAt }
+const serverPreloadCache = new Map();
+const SERVER_PRELOAD_WORKERS = 8;
+const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 55000;
+
+function fetchOneVideoForPreload(pageUrl) {
+  const trimmed = pageUrl.trim();
+  return new Promise((resolve) => {
+    const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT')), SERVER_PRELOAD_VIDEO_TIMEOUT_MS));
+    const work = (async () => {
+      const result = await getTikTokMp4Url(trimmed);
+      if (result.error || !result.url) return null;
+      const mp4Url = result.url.startsWith('//') ? 'https:' + result.url : result.url;
+      const controller = new AbortController();
+      const to = setTimeout(() => controller.abort(), 4000);
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': trimmed.split('?')[0] || 'https://www.tiktok.com/',
+        'Origin': 'https://www.tiktok.com',
+        'Accept': '*/*',
+      };
+      let r;
+      try {
+        r = await fetch(mp4Url, { headers, redirect: 'follow', signal: controller.signal });
+      } catch (_) {
+        clearTimeout(to);
+        const fallback = await enqueuePlaywrightFallback(trimmed);
+        return fallback.buffer ? { buffer: fallback.buffer, contentType: fallback.contentType || 'video/mp4' } : null;
+      }
+      clearTimeout(to);
+      if (r.ok) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        return { buffer: buf, contentType: r.headers.get('Content-Type') || 'video/mp4' };
+      }
+      const fallback = await enqueuePlaywrightFallback(trimmed);
+      return fallback.buffer ? { buffer: fallback.buffer, contentType: fallback.contentType || 'video/mp4' } : null;
+    })();
+    Promise.race([work, timeoutPromise]).then(resolve).catch(() => resolve(null));
+  });
+}
+
+function runServerPreload(roomCode, rounds) {
+  const total = rounds.length;
+  const cacheEntry = { rounds: new Array(total), createdAt: Date.now() };
+  serverPreloadCache.set(roomCode, cacheEntry);
+  const room = getRoomByCode(roomCode);
+  if (!room) return;
+  let completed = 0;
+  const jobs = rounds.map((r, i) => ({ roomCode, index: i, url: r.video_url }));
+  const processNext = async () => {
+    const job = jobs.shift();
+    if (!job) return;
+    const { roomCode: rc, index, url } = job;
+    const result = await fetchOneVideoForPreload(url);
+    const entry = serverPreloadCache.get(rc);
+    if (entry) entry.rounds[index] = result;
+    completed++;
+    io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total });
+    if (completed >= total) {
+      const r = getRoomByCode(rc);
+      if (r && r.status === 'preparing') {
+        r.status = 'playing';
+        const playersForClient = getPlayerListForRoom(r);
+        io.to(rc).emit('game_started', { players: playersForClient, totalRounds: total });
+      }
+    }
+    processNext();
+  };
+  for (let i = 0; i < Math.min(SERVER_PRELOAD_WORKERS, total); i++) processNext();
+}
+
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rate limit pour les APIs vidéo (par IP)
+// Rate limit pour les APIs vidéo (par IP) — configurable en prod (ex. Render) pour préchargement 50 vidéos
 const videoRateLimit = new Map();
-const VIDEO_RATE_LIMIT_WINDOW = 60000;
-const VIDEO_RATE_LIMIT_MAX = 30;
+const VIDEO_RATE_LIMIT_WINDOW = parseInt(process.env.VIDEO_RATE_LIMIT_WINDOW_MS, 10) || 120000;
+const VIDEO_RATE_LIMIT_MAX = parseInt(process.env.VIDEO_RATE_LIMIT_MAX, 10) || 80;
 function checkVideoRateLimit(ip) {
   const now = Date.now();
   let bucket = videoRateLimit.get(ip) || { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
@@ -112,6 +184,20 @@ app.get('/api/tiktok-video', async (req, res) => {
   if (!checkVideoRateLimit(ip)) return res.status(429).end();
   const pageUrl = req.query.url;
   if (!pageUrl || typeof pageUrl !== 'string') return res.status(400).end();
+  const roomCode = (req.query.room || '').toUpperCase();
+  const index = req.query.index != null ? parseInt(req.query.index, 10) : -1;
+  if (roomCode && index >= 0) {
+    const entry = serverPreloadCache.get(roomCode);
+    if (entry && entry.rounds[index] !== undefined) {
+      const cached = entry.rounds[index];
+      if (cached && cached.buffer) {
+        res.setHeader('Content-Type', cached.contentType || 'video/mp4');
+        res.setHeader('Content-Length', cached.buffer.length);
+        return res.status(200).end(cached.buffer);
+      }
+      return res.status(404).end();
+    }
+  }
   let trimmed = pageUrl.trim();
   try {
     if (trimmed.includes('%')) trimmed = decodeURIComponent(trimmed);
@@ -128,7 +214,7 @@ app.get('/api/tiktok-video', async (req, res) => {
   }
   if (!hostOk) hostOk = true;
   const t0 = Date.now();
-  const VIDEO_EXTRACT_TIMEOUT_MS = 22000;
+  const VIDEO_EXTRACT_TIMEOUT_MS = 55000;
   let responseSent = false;
   function sendOnce(status, body) {
     if (responseSent) return;
@@ -516,6 +602,7 @@ io.on('connection', (socket) => {
     const roundUrls = rounds.map(r => r.video_url);
     io.to(roomCode).emit('game_preparing', { roundUrls, totalRounds: rounds.length, players: playersForClient });
     ack?.({ ok: true });
+    runServerPreload(roomCode, rounds);
   });
 
   socket.on('preload_done', (data) => {
@@ -546,6 +633,7 @@ io.on('connection', (socket) => {
         maxStreak: p.maxStreak ?? 0,
       }));
       io.to(roomCode).emit('game_over', { scores: finalScores, totalRounds: totalRoundsPlayed });
+      serverPreloadCache.delete(roomCode);
       room.status = 'lobby';
       room.gameState = null;
       lastNextRoundSent.delete(roomCode);

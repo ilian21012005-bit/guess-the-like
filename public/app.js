@@ -1,5 +1,11 @@
 (function () {
-  const socket = io(window.location.origin);
+  const origin = window.location.origin;
+  const socket = io(origin, {
+    transports: ['polling', 'websocket'],
+    reconnection: true,
+    reconnectionAttempts: 15,
+    reconnectionDelay: 2000,
+  });
   let roomCode = '';
   let myPlayerId = null;
   let isHost = false;
@@ -14,14 +20,20 @@
     if (codeInput) { codeInput.value = params.get('room').toUpperCase().slice(0, 8); codeInput.focus(); }
   }
 
-  socket.on('connect', () => {
+  function setConnectionStatus(connected) {
     const banner = document.getElementById('reconnect-banner');
-    if (banner) banner.classList.add('hidden');
+    const joinBtn = document.getElementById('btn-join');
+    if (banner) banner.classList.toggle('hidden', connected);
+    if (joinBtn) joinBtn.disabled = !connected;
+  }
+
+  socket.on('connect', () => {
+    setConnectionStatus(true);
   });
   socket.on('disconnect', () => {
-    const banner = document.getElementById('reconnect-banner');
-    if (banner) banner.classList.remove('hidden');
+    setConnectionStatus(false);
   });
+  setConnectionStatus(socket.connected);
 
   const $ = (id) => document.getElementById(id);
   function voteKeyHandler(e) {
@@ -95,9 +107,22 @@
     setError('home-error', '');
     if (!username) { setError('home-error', 'Entre un pseudo'); return; }
     if (!code) { setError('home-error', 'Entre le code du salon'); return; }
+    if (!socket.connected) {
+      setError('home-error', 'Connexion au serveur en cours… Attends quelques secondes (bannière « Reconnexion » en haut) puis réessaie.');
+      return;
+    }
     const tiktokUsername = $('input-tiktok').value.trim() || username;
     const avatarUrl = getAvatarUrl();
+    const joinBtn = $('btn-join');
+    const prevText = joinBtn ? joinBtn.textContent : '';
+    if (joinBtn) { joinBtn.disabled = true; joinBtn.textContent = 'Connexion…'; }
+    const timeoutId = setTimeout(function () {
+      setError('home-error', 'Le serveur met trop de temps à répondre. Sur un hébergement gratuit il peut mettre jusqu’à 1 min à démarrer — réessaie dans un moment.');
+      if (joinBtn) { joinBtn.disabled = false; joinBtn.textContent = prevText; }
+    }, 65000);
     socket.emit('join_room', { code, username, tiktokUsername, avatarUrl: avatarUrl || undefined }, (res) => {
+      clearTimeout(timeoutId);
+      if (joinBtn) { joinBtn.disabled = false; joinBtn.textContent = prevText; }
       if (res?.error) { setError('home-error', res.error); return; }
       roomCode = code;
       myPlayerId = res.playerId;

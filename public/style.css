@@ -141,6 +141,7 @@ button.secondary {
 button.secondary:hover { background: var(--border); color: var(--text); }
 
 .error { color: var(--error); font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2em; }
+.hint { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; max-width: 360px; }
 .status { color: var(--success); font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2em; }
 
 #screen-lobby .instruction {

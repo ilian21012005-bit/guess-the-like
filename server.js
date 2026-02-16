@@ -108,7 +108,13 @@ function runServerPreload(roomCode, rounds) {
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+// polling en premier pour mieux passer les proxies (ex. Render) ; websocket en upgrade.
+const io = new Server(server, {
+  cors: { origin: '*' },
+  transports: ['polling', 'websocket'],
+  pingTimeout: 20000,
+  pingInterval: 10000,
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));

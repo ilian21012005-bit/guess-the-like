@@ -37,38 +37,14 @@ function enqueuePlaywrightFallback(pageUrl) {
 // Cache préchargement serveur : roomCode -> { rounds: Array<{buffer, contentType}|null>, createdAt }
 const serverPreloadCache = new Map();
 const SERVER_PRELOAD_WORKERS = 8;
-const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 55000;
+const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 120000; // 120s pour Playwright (ex. Render 512MB)
 
+// Préchargement : appel direct à Playwright (évite getTikTokMp4Url + fetch 403 inutiles).
 function fetchOneVideoForPreload(pageUrl) {
   const trimmed = pageUrl.trim();
   return new Promise((resolve) => {
     const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT')), SERVER_PRELOAD_VIDEO_TIMEOUT_MS));
     const work = (async () => {
-      const result = await getTikTokMp4Url(trimmed);
-      if (result.error || !result.url) return null;
-      const mp4Url = result.url.startsWith('//') ? 'https:' + result.url : result.url;
-      const controller = new AbortController();
-      const to = setTimeout(() => controller.abort(), 4000);
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': trimmed.split('?')[0] || 'https://www.tiktok.com/',
-        'Origin': 'https://www.tiktok.com',
-        'Accept': '*/*',
-      };
-      let r;
-      try {
-        r = await fetch(mp4Url, { headers, redirect: 'follow', signal: controller.signal });
-      } catch (_) {
-        clearTimeout(to);
-        const fallback = await enqueuePlaywrightFallback(trimmed);
-        return fallback.buffer ? { buffer: fallback.buffer, contentType: fallback.contentType || 'video/mp4' } : null;
-      }
-      clearTimeout(to);
-      console.log('[tiktok-video] preload fetch CDN: ' + r.status);
-      if (r.ok) {
-        const buf = Buffer.from(await r.arrayBuffer());
-        return { buffer: buf, contentType: r.headers.get('Content-Type') || 'video/mp4' };
-      }
       const fallback = await enqueuePlaywrightFallback(trimmed);
       return fallback.buffer ? { buffer: fallback.buffer, contentType: fallback.contentType || 'video/mp4' } : null;
     })();
@@ -216,7 +192,7 @@ app.get('/api/tiktok-video', async (req, res) => {
   }
   if (!hostOk) hostOk = true;
   const t0 = Date.now();
-  const VIDEO_EXTRACT_TIMEOUT_MS = 55000;
+  const VIDEO_EXTRACT_TIMEOUT_MS = 120000; // 120s pour laisser Playwright finir (ex. Render)
   let responseSent = false;
   function sendOnce(status, body) {
     if (responseSent) return;
@@ -225,7 +201,19 @@ app.get('/api/tiktok-video', async (req, res) => {
     else res.status(status).end();
   }
   const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), VIDEO_EXTRACT_TIMEOUT_MS));
+  const usePlaywrightDirect = process.env.USE_PLAYWRIGHT_DIRECT === '1' || process.env.USE_PLAYWRIGHT_DIRECT === 'true';
   const work = (async () => {
+    if (usePlaywrightDirect) {
+      console.log('[tiktok-video] mode direct Playwright (USE_PLAYWRIGHT_DIRECT)');
+      const fallback = await enqueuePlaywrightFallback(trimmed);
+      if (fallback.buffer && !responseSent) {
+        responseSent = true;
+        res.setHeader('Content-Type', fallback.contentType || 'video/mp4');
+        res.setHeader('Content-Length', fallback.buffer.length);
+        res.status(200).end(fallback.buffer);
+      } else if (!responseSent) sendOnce(fallback.error ? 504 : 404);
+      return;
+    }
     const result = await getTikTokMp4Url(trimmed);
     const tExtract = Date.now() - t0;
     console.log('[tiktok-video] extraction MP4: ' + tExtract + ' ms' + (result.error ? ' (échec: ' + result.error + ')' : ''));

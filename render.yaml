@@ -8,7 +8,10 @@ services:
     # Chromium nécessaire pour contourner le 403 du CDN TikTok (secours Playwright).
     # Si le build échoue (mémoire / quota), passer à un plan payant ou retirer "&& npx playwright install chromium".
     buildCommand: npm install && npx playwright install chromium
-    startCommand: npm start
+    startCommand: npx playwright install chromium && node server.js
     envVars:
       - key: NODE_VERSION
         value: 20
+      # Skip getTikTokMp4Url + fetch (toujours 403) → Playwright direct, gain de temps.
+      - key: USE_PLAYWRIGHT_DIRECT
+        value: "1"

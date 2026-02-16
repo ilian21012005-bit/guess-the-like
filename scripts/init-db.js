@@ -20,4 +20,11 @@ const statements = sql
   }
   console.log('Schema applied.');
   process.exit(0);
-})().catch((e) => { console.error(e); process.exit(1); });
+})().catch((e) => {
+  console.error(e.message || e);
+  if (e.code === 'ENOTFOUND' || e.message?.includes('getaddrinfo')) {
+    console.error('\n→ Depuis ton PC, utilise l’URL EXTERNE de la base (Render → ta base → Connections → External Database URL).');
+    console.error('  L’URL interne ne fonctionne que depuis un service Render.');
+  }
+  process.exit(1);
+});

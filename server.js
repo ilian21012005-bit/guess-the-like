@@ -62,6 +62,7 @@ function runServerPreload(roomCode, rounds) {
   if (!room) return;
   const toPreload = Math.min(PRELOAD_INITIAL_VIDEOS, total);
   let completed = 0;
+  let gameStartedEmitted = false;
   const jobs = rounds.slice(0, toPreload).map((r, i) => ({ roomCode, index: i, url: r.video_url }));
   const processNext = async () => {
     const job = jobs.shift();
@@ -72,13 +73,14 @@ function runServerPreload(roomCode, rounds) {
     if (entry) entry.rounds[index] = result;
     completed++;
     io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total: toPreload });
-    if (completed >= toPreload) {
-      const r = getRoomByCode(rc);
-      if (r && r.status === 'preparing') {
-        r.status = 'playing';
-        const playersForClient = getPlayerListForRoom(r);
-        io.to(rc).emit('game_started', { players: playersForClient, totalRounds: total });
-      }
+    const r = getRoomByCode(rc);
+    const canStart = completed >= 2 && entry?.rounds[0]?.buffer && entry?.rounds[1]?.buffer;
+    const mustStart = completed >= toPreload;
+    if (!gameStartedEmitted && r && r.status === 'preparing' && (canStart || mustStart)) {
+      gameStartedEmitted = true;
+      r.status = 'playing';
+      const playersForClient = getPlayerListForRoom(r);
+      io.to(rc).emit('game_started', { players: playersForClient, totalRounds: total });
     }
     processNext();
   };
@@ -172,11 +174,12 @@ app.get('/api/tiktok-video', async (req, res) => {
     if (entry && entry.rounds[index] !== undefined) {
       const cached = entry.rounds[index];
       if (cached && cached.buffer) {
+        console.log('[tiktok-video] cache hit room=%s index=%s', roomCode, index);
         res.setHeader('Content-Type', cached.contentType || 'video/mp4');
         res.setHeader('Content-Length', cached.buffer.length);
         return res.status(200).end(cached.buffer);
       }
-      // Cache null (préchargement échoué, ex. Render sans Playwright) → fallback extraction on-demand
+      console.log('[tiktok-video] cache miss (null) room=%s index=%s', roomCode, index);
     }
   }
   let trimmed = pageUrl.trim();

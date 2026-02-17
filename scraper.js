@@ -1,9 +1,10 @@
 const { chromium } = require('playwright');
 const path = require('path');
+const config = require('./config');
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const VIEWPORT = { width: 1280, height: 720 };
-const TIKTOK_NAV_TIMEOUT_MS = parseInt(process.env.TIKTOK_NAV_TIMEOUT_MS, 10) || 30000;
+const TIKTOK_NAV_TIMEOUT_MS = config.TIKTOK_NAV_TIMEOUT_MS;
 let _playwrightMissingLogged = false;
 function _logPlaywrightMissing(err) {
   const msg = err && (err.message || String(err));
@@ -45,14 +46,14 @@ async function _getSharedBrowser() {
 const SESSION_DIR = path.join(__dirname, '.playwright-tiktok-session');
 /** Si défini (ex. ton profil Chrome), on l'utilise pour launchPersistentContext. */
 function getSessionDir() {
-  const custom = process.env.CHROME_USER_DATA;
+  const custom = config.CHROME_USER_DATA;
   if (custom && require('fs').existsSync(custom)) return path.resolve(custom);
   return SESSION_DIR;
 }
 
 /** Si défini (ex. http://localhost:9222), on se connecte à un Chrome déjà ouvert au lieu de lancer un nouveau. */
 function getChromeDebugUrl() {
-  const url = process.env.CHROME_DEBUG_URL;
+  const url = config.CHROME_DEBUG_URL;
   if (!url || !url.startsWith('http')) return null;
   // Forcer IPv4 pour éviter ECONNREFUSED sur ::1 (Windows)
   return url.replace(/\/$/, '').replace(/localhost/i, '127.0.0.1');
@@ -88,7 +89,7 @@ async function fetchUserLikes(username, limit = 100, options = {}) {
 
   const cdpUrl = getChromeDebugUrl();
   const sessionDir = useSession ? getSessionDir() : null;
-  const isChromeProfile = useSession && process.env.CHROME_USER_DATA && require('fs').existsSync(process.env.CHROME_USER_DATA);
+  const isChromeProfile = useSession && config.CHROME_USER_DATA && require('fs').existsSync(config.CHROME_USER_DATA);
   const headless = isChromeProfile ? false : optionHeadless;
 
   let browser;

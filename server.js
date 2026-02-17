@@ -4,12 +4,11 @@ const http = require('http');
 const { Readable } = require('stream');
 const express = require('express');
 const { Server } = require('socket.io');
+const config = require('./config');
 const { harvestLikes, getTikTokMp4Url, getTikTokMp4Buffer } = require('./scraper');
 const db = require('./db');
 
-// File d'attente pour le secours Playwright. Sur Render 512MB, mettre PLAYWRIGHT_CONCURRENT=4 (ou 2) dans les env.
-// Valeurs par défaut intentionnels si les variables ne sont pas définies.
-const PLAYWRIGHT_CONCURRENT = parseInt(process.env.PLAYWRIGHT_CONCURRENT, 10) || 8;
+const PLAYWRIGHT_CONCURRENT = config.PLAYWRIGHT_CONCURRENT;
 let playwrightMissingLogged = false;
 const playwrightQueue = [];
 let playwrightRunning = 0;
@@ -37,10 +36,9 @@ function enqueuePlaywrightFallback(pageUrl) {
 
 // Cache préchargement serveur : roomCode -> { rounds: Array<{buffer, contentType}|null>, createdAt }
 const serverPreloadCache = new Map();
-const SERVER_PRELOAD_WORKERS = 8;
-const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 120000; // 120s pour Playwright (ex. Render 512MB)
-// Nombre de vidéos prêtes avant d'émettre game_started (pour lancer la partie vite). Le préchargement continue ensuite pour TOUTES les manches.
-const PRELOAD_MIN_BEFORE_START = parseInt(process.env.PRELOAD_MIN_BEFORE_START, 10) || 2;
+const SERVER_PRELOAD_WORKERS = config.SERVER_PRELOAD_WORKERS;
+const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = config.SERVER_PRELOAD_VIDEO_TIMEOUT_MS;
+const PRELOAD_MIN_BEFORE_START = config.PRELOAD_MIN_BEFORE_START;
 
 // Préchargement : appel direct à Playwright (évite getTikTokMp4Url + fetch 403 inutiles).
 function fetchOneVideoForPreload(pageUrl) {
@@ -120,9 +118,8 @@ const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 // polling en premier pour mieux passer les proxies (ex. Render) ; websocket en upgrade.
-const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
 const io = new Server(server, {
-  cors: { origin: allowedOrigin },
+  cors: { origin: config.ALLOWED_ORIGIN },
   transports: ['polling', 'websocket'],
   pingTimeout: 20000,
   pingInterval: 10000,
@@ -139,18 +136,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/health', (req, res) => { res.status(200).end('ok'); });
 
-// Rate limit pour les APIs vidéo (par IP) — configurable en prod (ex. Render) pour préchargement 50 vidéos
 const videoRateLimit = new Map();
-const VIDEO_RATE_LIMIT_WINDOW = parseInt(process.env.VIDEO_RATE_LIMIT_WINDOW_MS, 10) || 120000;
-const VIDEO_RATE_LIMIT_MAX = parseInt(process.env.VIDEO_RATE_LIMIT_MAX, 10) || 80;
 function checkVideoRateLimit(ip) {
   const now = Date.now();
-  // Création explicite du bucket si absent (IP peut être "unknown" si trust proxy non configuré).
-  let bucket = videoRateLimit.get(ip) || { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
-  if (now >= bucket.resetAt) bucket = { count: 0, resetAt: now + VIDEO_RATE_LIMIT_WINDOW };
+  let bucket = videoRateLimit.get(ip) || { count: 0, resetAt: now + config.VIDEO_RATE_LIMIT_WINDOW_MS };
+  if (now >= bucket.resetAt) bucket = { count: 0, resetAt: now + config.VIDEO_RATE_LIMIT_WINDOW_MS };
   bucket.count++;
   videoRateLimit.set(ip, bucket);
-  return bucket.count <= VIDEO_RATE_LIMIT_MAX;
+  return bucket.count <= config.VIDEO_RATE_LIMIT_MAX;
 }
 
 // Nettoyer les tokens bookmarklet expirés
@@ -249,9 +242,7 @@ app.get('/api/tiktok-video', async (req, res) => {
   }
   if (!hostOk) hostOk = true;
   const t0 = Date.now();
-  // Timeout strict pour l'extraction vidéo complète (HTML + CDN + éventuel Playwright).
-  // Au-delà, on renvoie un fallback pour laisser le client afficher le lien / iframe TikTok.
-  const VIDEO_EXTRACT_TIMEOUT_MS = parseInt(process.env.VIDEO_EXTRACT_TIMEOUT_MS, 10) || 15000; // 15s max (override en test)
+  const VIDEO_EXTRACT_TIMEOUT_MS = config.VIDEO_EXTRACT_TIMEOUT_MS;
   let responseSent = false;
   function sendOnce(status, body) {
     if (responseSent) return;
@@ -260,7 +251,7 @@ app.get('/api/tiktok-video', async (req, res) => {
     else res.status(status).end();
   }
   const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), VIDEO_EXTRACT_TIMEOUT_MS));
-  const usePlaywrightDirect = process.env.USE_PLAYWRIGHT_DIRECT === '1' || process.env.USE_PLAYWRIGHT_DIRECT === 'true';
+  const usePlaywrightDirect = config.USE_PLAYWRIGHT_DIRECT;
   const work = (async () => {
     if (usePlaywrightDirect) {
       console.log('[tiktok-video] mode direct Playwright (USE_PLAYWRIGHT_DIRECT)');
@@ -601,7 +592,7 @@ io.on('connection', (socket) => {
       emitRoomUpdated(room);
       console.log('[set_ready] Erreur retournée:', result.error);
       let errMsg = result.error;
-      if (process.env.CHROME_DEBUG_URL && /ECONNREFUSED|127\.0\.0\.1:9222/.test(result.error)) {
+      if (config.CHROME_DEBUG_URL && /ECONNREFUSED|127\.0\.0\.1:9222/.test(result.error)) {
         errMsg = 'Chrome n\'écoute pas sur le port 9222. Ferme TOUTES les fenêtres Chrome, puis lance uniquement : .\\scripts\\launch-chrome-debug.ps1 — garde cette fenêtre ouverte et réessaie Prêt.';
       }
       return ack?.({ error: errMsg });
@@ -678,7 +669,7 @@ io.on('connection', (socket) => {
 
   socket.on('start_game', async (data, ack) => {
     const roomCode = (data?.code || '').toUpperCase();
-    const totalRounds = Math.min(Math.max(parseInt(data?.totalRounds, 10) || 50, 10), 50);
+    const totalRounds = Math.min(Math.max(parseInt(data?.totalRounds, 10) || config.PRELOAD_INITIAL_VIDEOS, 10), config.PRELOAD_INITIAL_VIDEOS);
     const room = getRoomByCode(roomCode);
     if (!room) return ack?.({ error: 'Room not found' });
     if (room.hostSocketId !== socket.id) return ack?.({ error: 'Only host can start' });
@@ -883,7 +874,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = config.PORT;
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => console.log('Guess The Like — http://localhost:' + PORT));
 }

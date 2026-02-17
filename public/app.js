@@ -347,8 +347,10 @@
             });
           };
           videoEl.onerror = function () {
-            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Ouvre le lien ci-dessous.'; loadingEl.classList.remove('hidden'); }
-            if (linkOpen) { linkOpen.style.display = 'block'; linkOpen.href = videoUrl; }
+            videoEl.style.display = 'none';
+            if (loadingEl) { loadingEl.textContent = 'Vidéo illisible. Ouvre le lien ci-dessous.'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
+            if (linkOpen) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
+            if (iframeWrap) iframeWrap.style.display = 'none';
             if (socket && roomCode != null && roundIndex != null && videoUrl) {
               socket.emit('video_play_failed', { code: roomCode, roundIndex, videoUrl });
             }
@@ -375,15 +377,15 @@
               // Fallback JSON : le serveur renvoie { fallbackUrl } si l'extraction MP4 a échoué / time-out.
               if (ct.indexOf('application/json') !== -1) {
                 return res.json().then(function (data) {
-                  if (data && data.fallbackUrl && iframe && iframeWrap) {
-                    iframe.src = data.fallbackUrl;
-                    iframeWrap.style.display = 'block';
-                    if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
+                  if (data && data.fallbackUrl) {
+                    if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible. Ouvre le lien ci-dessous.'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
+                    if (linkOpen) { linkOpen.href = data.fallbackUrl; linkOpen.style.display = 'block'; }
+                    if (videoEl) videoEl.style.display = 'none';
+                    if (iframeWrap) iframeWrap.style.display = 'none';
                   } else if (loadingEl) {
-                    loadingEl.textContent = 'Vidéo indisponible. Lien TikTok ci-dessous.';
+                    loadingEl.textContent = 'Vidéo indisponible. Ouvre le lien ci-dessous.';
                     loadingEl.classList.remove('hidden');
                   }
-                  // Pas de blob vidéo à appliquer dans ce cas.
                   return null;
                 });
               }
@@ -391,7 +393,8 @@
             })
             .then(applyBlob)
             .catch(function () {
-              if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (réseau). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+              if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (réseau). Ouvre le lien ci-dessous.'; loadingEl.classList.remove('hidden'); loadingEl.style.display = 'block'; }
+              if (linkOpen) { linkOpen.href = videoUrl; linkOpen.style.display = 'block'; }
             });
         }
       }

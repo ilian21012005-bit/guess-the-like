@@ -809,7 +809,7 @@ io.on('connection', (socket) => {
     room.players.forEach(p => {
       const v = votes[p.socketId];
       if (!v) return;
-      const correct = v.targetPlayerId === ownerId;
+      const correct = String(v.targetPlayerId) === String(ownerId);
       if (correct) {
         p.streak = (p.streak || 0) + 1;
         p.correctCount = (p.correctCount || 0) + 1;

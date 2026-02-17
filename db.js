@@ -61,18 +61,31 @@ async function saveLikes(playerId, videoUrls) {
 }
 
 /**
- * Récupère jusqu'à limit vidéos pour une partie : jamais jouées dans cette room en priorité.
+ * Récupère jusqu'à limit vidéos pour une partie.
+ * Priorité : vidéos JAMAIS utilisées dans AUCUNE partie (toutes rooms confondues),
+ * pour les joueurs indiqués. Si pas assez, on complète avec les vidéos les moins
+ * jouées / les plus anciennes.
+ *
+ * NB : roomCode est conservé pour compatibilité d'appel mais n'est plus utilisé
+ * dans le filtre (logique « global player centric »).
+ *
+ * @param {string} roomCode - Code du salon (non utilisé dans le filtre, conservé pour compatibilité)
+ * @param {number[]} playerIds - Liste des ids joueurs présents dans le salon
  * @param {number} limit - 10, 25 ou 50
  */
 async function getVideosForRoom(roomCode, playerIds, limit = 50) {
   if (!pool || !playerIds.length) return [];
   const cap = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 50);
   const placeholders = playerIds.map((_, i) => `$${i + 1}`).join(',');
-  const params = [...playerIds, roomCode];
+  const params = [...playerIds];
   let res = await query(
     `SELECT ul.id, ul.video_url, ul.player_id FROM user_likes ul
      WHERE ul.player_id IN (${placeholders})
-     AND NOT EXISTS (SELECT 1 FROM play_history ph WHERE ph.room_code = $${playerIds.length + 1} AND ph.video_id = ul.id)
+     AND NOT EXISTS (
+       SELECT 1
+       FROM play_history ph
+       WHERE ph.video_id = ul.id
+     )
      ORDER BY RANDOM() LIMIT ${cap}`,
     params
   );

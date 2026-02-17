@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "test": "jest --forceExit",
     "db:init": "node scripts/init-db.js",
     "setup-session": "node scripts/setup-tiktok-session.js"
   },
@@ -14,5 +15,9 @@
     "pg": "^8.18.0",
     "playwright": "^1.58.2",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
   }
 }

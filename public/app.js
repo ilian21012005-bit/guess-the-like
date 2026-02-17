@@ -347,6 +347,22 @@
                 if (loadingEl) { loadingEl.textContent = msg; loadingEl.classList.remove('hidden'); }
                 return null;
               }
+              var ct = res.headers.get('Content-Type') || '';
+              // Fallback JSON : le serveur renvoie { fallbackUrl } si l'extraction MP4 a échoué / time-out.
+              if (ct.indexOf('application/json') !== -1) {
+                return res.json().then(function (data) {
+                  if (data && data.fallbackUrl && iframe && iframeWrap) {
+                    iframe.src = data.fallbackUrl;
+                    iframeWrap.style.display = 'block';
+                    if (loadingEl) { loadingEl.classList.add('hidden'); loadingEl.style.display = 'none'; }
+                  } else if (loadingEl) {
+                    loadingEl.textContent = 'Vidéo indisponible. Lien TikTok ci-dessous.';
+                    loadingEl.classList.remove('hidden');
+                  }
+                  // Pas de blob vidéo à appliquer dans ce cas.
+                  return null;
+                });
+              }
               return res.blob();
             })
             .then(applyBlob)

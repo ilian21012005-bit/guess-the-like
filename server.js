@@ -229,7 +229,9 @@ app.get('/api/tiktok-video', async (req, res) => {
   }
   if (!hostOk) hostOk = true;
   const t0 = Date.now();
-  const VIDEO_EXTRACT_TIMEOUT_MS = 120000; // 120s pour laisser Playwright finir (ex. Render)
+  // Timeout strict pour l'extraction vidéo complète (HTML + CDN + éventuel Playwright).
+  // Au-delà, on renvoie un fallback pour laisser le client afficher le lien / iframe TikTok.
+  const VIDEO_EXTRACT_TIMEOUT_MS = parseInt(process.env.VIDEO_EXTRACT_TIMEOUT_MS, 10) || 15000; // 15s max (override en test)
   let responseSent = false;
   function sendOnce(status, body) {
     if (responseSent) return;
@@ -332,12 +334,15 @@ app.get('/api/tiktok-video', async (req, res) => {
   try {
     await Promise.race([work, timeoutPromise]);
   } catch (err) {
+    if (responseSent) return;
     if (err && err.message === 'TIMEOUT') {
-      console.warn('[tiktok-video] timeout après ' + VIDEO_EXTRACT_TIMEOUT_MS + ' ms');
-      sendOnce(504);
-    } else if (!responseSent) {
-      sendOnce(502);
+      console.warn('[tiktok-video] timeout après ' + VIDEO_EXTRACT_TIMEOUT_MS + ' ms — fallback URL TikTok.');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.status(200).end(JSON.stringify({ fallbackUrl: trimmed, error: 'TIMEOUT' }));
     }
+    console.error('[tiktok-video] erreur inattendue:', err?.message || err);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    return res.status(200).end(JSON.stringify({ fallbackUrl: trimmed, error: err?.message || 'UNKNOWN' }));
   }
 });
 
@@ -824,4 +829,7 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Guess The Like — http://localhost:' + PORT));
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => console.log('Guess The Like — http://localhost:' + PORT));
+}
+module.exports = { app, server };

@@ -485,6 +485,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     return { buffer, contentType };
   } catch (err) {
     try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] getTikTokMp4Buffer context.close:', e2?.message); }
+    console.error('[scraper] getTikTokMp4Buffer error:', err?.message || err);
     _logPlaywrightMissing(err);
     return { error: err.message || 'BUFFER_ERROR' };
   }

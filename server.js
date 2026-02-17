@@ -39,8 +39,8 @@ function enqueuePlaywrightFallback(pageUrl) {
 const serverPreloadCache = new Map();
 const SERVER_PRELOAD_WORKERS = 8;
 const SERVER_PRELOAD_VIDEO_TIMEOUT_MS = 120000; // 120s pour Playwright (ex. Render 512MB)
-// Précharger seulement les N premières vidéos pour lancer la partie vite ; le reste en on-demand (env: PRELOAD_INITIAL_VIDEOS).
-const PRELOAD_INITIAL_VIDEOS = parseInt(process.env.PRELOAD_INITIAL_VIDEOS, 10) || 10;
+// Nombre de vidéos prêtes avant d'émettre game_started (pour lancer la partie vite). Le préchargement continue ensuite pour TOUTES les manches.
+const PRELOAD_MIN_BEFORE_START = parseInt(process.env.PRELOAD_MIN_BEFORE_START, 10) || 2;
 
 // Préchargement : appel direct à Playwright (évite getTikTokMp4Url + fetch 403 inutiles).
 function fetchOneVideoForPreload(pageUrl) {
@@ -66,34 +66,28 @@ function runServerPreload(roomCode, rounds) {
   serverPreloadCache.set(roomCode, cacheEntry);
   const room = getRoomByCode(roomCode);
   if (!room) return;
-  const toPreload = Math.min(PRELOAD_INITIAL_VIDEOS, total);
+  const minBeforeStart = Math.min(PRELOAD_MIN_BEFORE_START, total);
   let completed = 0;
   let gameStartedEmitted = false;
-  let phase2Queued = false;
-  // Phase 1 : seulement les jobs 0 et 1 pour qu'ils aient toute la capacité (pas de concurrence avec 6 autres).
-  const jobs = rounds.slice(0, Math.min(2, toPreload)).map((r, i) => ({ roomCode, index: i, url: r.video_url }));
+  const jobs = rounds.map((r, i) => ({ roomCode, index: i, url: r.video_url }));
   const processNext = async () => {
     const job = jobs.shift();
     if (!job) return;
     const { roomCode: rc, index, url } = job;
     let result = await fetchOneVideoForPreload(url);
-    if (!result && index <= 1) {
+    if (!result && index < minBeforeStart) {
       result = await fetchOneVideoForPreload(url);
     }
     const entry = serverPreloadCache.get(rc);
     if (entry) {
       entry.rounds[index] = result;
-      if (!result) console.warn('[preload] round %s stocké null (timeout ou erreur)', index);
+      if (!result) console.warn('[preload] round %s stocké null (timeout ou erreur) url=%s', index, (url || '').slice(0, 120));
     }
     completed++;
-    io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total: toPreload });
-    if (completed >= 2 && !phase2Queued) {
-      phase2Queued = true;
-      for (let i = 2; i < toPreload; i++) {
-        jobs.push({ roomCode: rc, index: i, url: rounds[i].video_url });
-      }
+    io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total });
+    if (completed >= minBeforeStart && !gameStartedEmitted) {
       const r = getRoomByCode(rc);
-      if (!gameStartedEmitted && r && r.status === 'preparing') {
+      if (r && r.status === 'preparing') {
         gameStartedEmitted = true;
         r.status = 'playing';
         const playersForClient = getPlayerListForRoom(r);
@@ -102,22 +96,32 @@ function runServerPreload(roomCode, rounds) {
     }
     processNext();
   };
-  for (let i = 0; i < Math.min(2, jobs.length); i++) processNext();
+  const workers = Math.min(SERVER_PRELOAD_WORKERS, jobs.length);
+  for (let i = 0; i < workers; i++) processNext();
 }
 
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 // polling en premier pour mieux passer les proxies (ex. Render) ; websocket en upgrade.
+const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
 const io = new Server(server, {
-  cors: { origin: '*' },
+  cors: { origin: allowedOrigin },
   transports: ['polling', 'websocket'],
   pingTimeout: 20000,
   pingInterval: 10000,
 });
 
-app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/health', (req, res) => { res.status(200).end('ok'); });
 
 // Rate limit pour les APIs vidéo (par IP) — configurable en prod (ex. Render) pour préchargement 50 vidéos
 const videoRateLimit = new Map();
@@ -166,7 +170,7 @@ app.post('/api/import-likes-from-bookmarklet', (req, res) => {
   if (!roomLikes.has(key)) roomLikes.set(key, {});
   roomLikes.get(key)[me.playerId] = list;
   me.isReady = true;
-  io.to(key).emit('room_updated', { players: getPlayerListForRoom(room) });
+  emitRoomUpdated(room);
   io.to(data.socketId).emit('harvest_done', { count: list.length });
   console.log('[bookmarklet] Stored %s likes for room=%s playerId=%s', list.length, key, me.playerId);
   res.json({ ok: true, count: list.length });
@@ -205,7 +209,7 @@ app.get('/api/tiktok-video', async (req, res) => {
         res.setHeader('Content-Length', cached.buffer.length);
         return res.status(200).end(cached.buffer);
       }
-      console.log('[tiktok-video] cache miss (null) room=%s index=%s', roomCode, index);
+      console.warn('[tiktok-video] cache miss (null) room=%s index=%s url=%s', roomCode, index, (pageUrl || '').trim().slice(0, 120));
     }
   }
   let trimmed = pageUrl.trim();
@@ -417,7 +421,7 @@ function getRoomByCode(code) {
   return rooms.get((code || '').toUpperCase());
 }
 
-function getPlayerListForRoom(room) {
+function getPlayerListForRoom(room, playableCounts = null) {
   return room.players.map(p => ({
     socketId: p.socketId,
     playerId: p.playerId,
@@ -428,7 +432,23 @@ function getPlayerListForRoom(room) {
     score: p.score ?? 0,
     streak: p.streak ?? 0,
     isHost: room.hostSocketId === p.socketId,
+    playableCount: playableCounts && playableCounts[p.playerId] !== undefined ? playableCounts[p.playerId] : null,
   }));
+}
+
+async function getRoomUpdatedPayload(room) {
+  const playerIds = room.players.map(p => p.playerId);
+  let playableCounts = {};
+  if (db.pool && playerIds.length) {
+    try {
+      playableCounts = await db.getPlayableVideoCount(playerIds);
+    } catch (_) {}
+  }
+  return { players: getPlayerListForRoom(room, playableCounts) };
+}
+
+function emitRoomUpdated(room) {
+  getRoomUpdatedPayload(room).then((payload) => io.to(room.code).emit('room_updated', payload));
 }
 
 io.on('connection', (socket) => {
@@ -515,7 +535,7 @@ io.on('connection', (socket) => {
     }
     socket.join(roomCode);
     touchRoom(room);
-    io.to(roomCode).emit('room_updated', { players: getPlayerListForRoom(room) });
+    emitRoomUpdated(room);
     ack?.({ playerId, players: getPlayerListForRoom(room) });
   });
 
@@ -540,7 +560,7 @@ io.on('connection', (socket) => {
     const tiktokUser = (me.tiktokUsername || me.username || '').replace(/^@/, '');
     if (!tiktokUser) return ack?.({ error: 'TikTok username required' });
     me.isReady = true;
-    io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
+    emitRoomUpdated(room);
     ack?.({ status: 'scraping' });
 
     let result;
@@ -550,7 +570,7 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('[set_ready] Erreur scraper:', err.message || err);
       me.isReady = false;
-      io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
+      emitRoomUpdated(room);
       const msg = (err.message || String(err)).toLowerCase();
       const friendly = msg.includes('user data') || msg.includes('already in use')
         ? 'Profil Chrome déjà utilisé. Ferme toutes les fenêtres Chrome puis réessaie.'
@@ -562,7 +582,7 @@ io.on('connection', (socket) => {
     if (count === 0 && !result.error) console.log('[set_ready] Scraper a renvoyé 0 vidéos pour @%s', tiktokUser);
     if (result.error) {
       me.isReady = false;
-      io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
+      emitRoomUpdated(room);
       console.log('[set_ready] Erreur retournée:', result.error);
       let errMsg = result.error;
       if (process.env.CHROME_DEBUG_URL && /ECONNREFUSED|127\.0\.0\.1:9222/.test(result.error)) {
@@ -572,7 +592,7 @@ io.on('connection', (socket) => {
     }
     if (count === 0) {
       me.isReady = false;
-      io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
+      emitRoomUpdated(room);
       return ack?.({ error: 'Aucun like récupéré. Vérifie ton @ TikTok et que tes likes sont bien en public.' });
     }
     if (db.pool && me.playerId) {
@@ -594,7 +614,7 @@ io.on('connection', (socket) => {
       roomLikes.get(key)[me.playerId] = list;
       console.log('[set_ready] Stored %s likes for room=%s playerId=%s', list.length, key, me.playerId);
     }
-    io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
+    emitRoomUpdated(room);
     socket.emit('harvest_done', { count });
     ack?.({ ok: true, count });
   });
@@ -635,7 +655,7 @@ io.on('connection', (socket) => {
     roomLikes.get(key)[me.playerId] = list;
     me.isReady = true;
     touchRoom(room);
-    io.to(room.code).emit('room_updated', { players: getPlayerListForRoom(room) });
+    emitRoomUpdated(room);
     console.log('[import_likes] Stored %s links for room=%s playerId=%s', list.length, key, me.playerId);
     ack?.({ ok: true, count: list.length });
   });
@@ -678,7 +698,20 @@ io.on('connection', (socket) => {
       const mem = roomLikes.get((roomCode || '').toUpperCase());
       const total = mem ? Object.values(mem).reduce((s, arr) => s + (arr?.length || 0), 0) : 0;
       console.log('[start_game] Aucune vidéo. roomCode=%s playerIds=%s roomLikes total=%s', roomCode, playerIds.length, total);
-      return ack?.({ error: 'Aucune vidéo. Clique sur « Prêt » (likes en public sur TikTok), attends le message de succès, puis relance.' });
+      let playableCounts = {};
+      if (db.pool && playerIds.length) {
+        try {
+          playableCounts = await db.getPlayableVideoCount(playerIds);
+        } catch (_) {}
+      }
+      const parts = room.players.map((p) => {
+        const n = playableCounts[p.playerId] ?? 0;
+        return `${p.username} : ${n} vidéo(s) jouable(s)`;
+      });
+      const msg = parts.length
+        ? `Aucune vidéo pour lancer cette partie. ${parts.join(' — ')}. Choisis ce nombre de manches ou moins, ou importe plus de liens TikTok.`
+        : 'Aucune vidéo. Importe des liens TikTok dans le lobby (voir les 3 étapes ci-dessus).';
+      return ack?.({ error: msg, playableCounts });
     }
     room.status = 'preparing';
     room.gameState = {
@@ -690,7 +723,7 @@ io.on('connection', (socket) => {
     room.players.forEach(p => { p.score = 0; p.streak = 0; p.correctCount = 0; p.maxStreak = 0; });
     const playersForClient = getPlayerListForRoom(room);
     const roundUrls = rounds.map(r => r.video_url);
-    const preloadTotal = Math.min(PRELOAD_INITIAL_VIDEOS, rounds.length);
+    const preloadTotal = rounds.length;
     io.to(roomCode).emit('game_preparing', { roundUrls, totalRounds: rounds.length, preloadTotal, players: playersForClient });
     ack?.({ ok: true });
     runServerPreload(roomCode, rounds);
@@ -741,6 +774,12 @@ io.on('connection', (socket) => {
       players: getPlayerListForRoom(room),
     });
   }
+
+  socket.on('video_play_failed', (data) => {
+    const { code, roundIndex, videoUrl } = data || {};
+    const roomCode = (code || '').toUpperCase();
+    console.warn('[video] client signale lecture impossible round=%s url=%s room=%s', roundIndex, (videoUrl || '').slice(0, 120), roomCode);
+  });
 
   socket.on('submit_vote', (data) => {
     const { code, targetPlayerId, roundIndex } = data || {};
@@ -821,7 +860,7 @@ io.on('connection', (socket) => {
         rooms.delete(code);
       } else {
         if (room.hostSocketId === socket.id) room.hostSocketId = room.players[0].socketId;
-        io.to(code).emit('room_updated', { players: getPlayerListForRoom(room) });
+        emitRoomUpdated(room);
       }
       break;
     }

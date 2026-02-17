@@ -137,12 +137,14 @@
     $('lobby-code').textContent = roomCode;
     const opts = $('lobby-options');
     if (opts) opts.classList.toggle('hidden', !isHost);
-    $('lobby-players').innerHTML = (players || []).map(p => `
-      <li>
+    $('lobby-players').innerHTML = (players || []).map(p => {
+      const readyStr = p.isReady ? '✓ Prêt' : '...';
+      const countStr = (p.playableCount !== undefined && p.playableCount !== null) ? ` · ${p.playableCount} vidéo(s) jouable(s)` : '';
+      return `<li>
         <span>${escapeHtml(p.username)}</span>
-        <span class="${p.isReady ? 'ready' : ''}">${p.isReady ? '✓ Prêt' : '...'}</span>
-      </li>
-    `).join('');
+        <span class="${p.isReady ? 'ready' : ''}">${readyStr}${countStr}</span>
+      </li>`;
+    }).join('');
     $('lobby-status').textContent = '';
     setError('lobby-error', '');
     const hostBtn = $('btn-start');
@@ -166,6 +168,17 @@
       if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = '📋 Copier'; }, 2000); }
     });
   });
+
+  const stepsDetail = document.getElementById('steps-detail');
+  const btnToggleSteps = document.getElementById('btn-toggle-steps');
+  if (btnToggleSteps && stepsDetail) {
+    btnToggleSteps.addEventListener('click', () => {
+      const hidden = stepsDetail.hidden;
+      stepsDetail.hidden = !hidden;
+      btnToggleSteps.textContent = hidden ? 'Masquer le détail' : 'Voir le détail';
+      btnToggleSteps.setAttribute('aria-expanded', !!hidden);
+    });
+  }
 
   const TIKTOK_SCRIPT = [
     "(function(){",
@@ -240,6 +253,8 @@
     show('screen-preload');
     if (progressEl) progressEl.textContent = '0 / ' + preloadTotal;
     if (barEl) barEl.style.width = '0%';
+    const bgMsg = $('preload-background-msg');
+    if (bgMsg) bgMsg.classList.add('hidden');
   });
 
   socket.on('preload_progress', (data) => {
@@ -250,6 +265,10 @@
     const total = data.total || 1;
     if (progressEl) progressEl.textContent = loaded + ' / ' + total;
     if (barEl) barEl.style.width = Math.round((loaded / total) * 100) + '%';
+    if (loaded >= 2 && total > 2) {
+      const bgMsg = $('preload-background-msg');
+      if (bgMsg) bgMsg.classList.remove('hidden');
+    }
   });
 
   socket.on('game_started', (data) => {
@@ -311,7 +330,8 @@
         const cached = preloadCache.get(videoUrl);
         function applyBlob(blob) {
           if (!blob) {
-            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible. Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible. Ouvre le lien ci-dessous.'; loadingEl.classList.remove('hidden'); }
+            if (linkOpen) { linkOpen.style.display = 'block'; linkOpen.href = videoUrl; }
             return;
           }
           const blobUrl = URL.createObjectURL(blob);
@@ -327,7 +347,11 @@
             });
           };
           videoEl.onerror = function () {
-            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Lien TikTok ci-dessous.'; loadingEl.classList.remove('hidden'); }
+            if (loadingEl) { loadingEl.textContent = 'Vidéo indisponible (MP4). Ouvre le lien ci-dessous.'; loadingEl.classList.remove('hidden'); }
+            if (linkOpen) { linkOpen.style.display = 'block'; linkOpen.href = videoUrl; }
+            if (socket && roomCode != null && roundIndex != null && videoUrl) {
+              socket.emit('video_play_failed', { code: roomCode, roundIndex, videoUrl });
+            }
           };
           videoEl.load();
         }
@@ -421,8 +445,10 @@
     const nameEl = $('roulette-name');
     nameEl.textContent = '...';
     let index = 0;
+    const container = $('roulette-container');
     const cycle = () => {
       if (rouletteTimer === null) return;
+      if (container) { container.classList.add('roulette-tick'); setTimeout(() => container.classList.remove('roulette-tick'), 80); }
       const p = players[index % players.length];
       nameEl.textContent = p.username;
       avatarEl.src = p.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(p.username);
@@ -489,15 +515,25 @@
   $('btn-share-score').addEventListener('click', () => {
     const myScore = lastGameOver?.scores?.find(s => s.playerId === myPlayerId);
     const text = myScore
-      ? 'Guess The Like — ' + myScore.username + ' : ' + (myScore.score || 0) + ' pts (deviné ' + (myScore.correctCount ?? 0) + '/' + (lastGameOver.totalRounds || 0) + ')'
-      : 'Guess The Like — Devine qui a liké ce TikTok !';
+      ? 'WhoLiked — ' + myScore.username + ' : ' + (myScore.score || 0) + ' pts (deviné ' + (myScore.correctCount ?? 0) + '/' + (lastGameOver.totalRounds || 0) + ')'
+      : 'WhoLiked — Devine qui a liké ce TikTok !';
     const url = window.location.href.split('?')[0];
-    if (navigator.share && navigator.canShare?.({ text, url })) {
-      navigator.share({ title: 'Guess The Like', text, url }).catch(() => {});
+    if (navigator.share) {
+      navigator.share({ title: 'WhoLiked', text, url })
+        .then(() => {
+          const btn = $('btn-share-score');
+          if (btn) { btn.textContent = '✓ Partagé !'; setTimeout(() => { btn.textContent = 'Partager mon score'; }, 2000); }
+        })
+        .catch(() => {
+          navigator.clipboard.writeText(text + ' ' + url).then(() => {
+            const btn = $('btn-share-score');
+            if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Partager mon score'; }, 2000); }
+          });
+        });
     } else {
       navigator.clipboard.writeText(text + ' ' + url).then(() => {
         const btn = $('btn-share-score');
-        if (btn) { btn.textContent = '✓ Lien copié !'; setTimeout(() => { btn.textContent = 'Partager mon score'; }, 2000); }
+        if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Partager mon score'; }, 2000); }
       });
     }
   });

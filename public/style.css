@@ -154,6 +154,22 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
+.instruction-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  width: auto;
+  margin: 0;
+  font-size: inherit;
+  color: var(--accent-strong);
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.link-btn:hover { color: var(--accent); }
+.steps-detail[hidden] { display: none !important; }
+.steps-detail:not([hidden]) { display: block; margin-bottom: 0.75rem; }
 
 #lobby-players { list-style: none; padding: 0; width: 100%; }
 #lobby-players li {
@@ -244,6 +260,13 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   border-radius: 4px;
   transition: width 0.25s ease;
 }
+.preload-background-msg {
+  font-size: 0.9rem;
+  color: var(--success);
+  margin: 0.5rem 0 0;
+  max-width: 280px;
+}
+.preload-background-msg.hidden { display: none !important; }
 
 /* Countdown */
 #screen-countdown { justify-content: center; }
@@ -266,6 +289,15 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   color: var(--text-muted);
   margin-bottom: 0.6rem;
   font-weight: 500;
+}
+.round-badge {
+  display: inline-block;
+  padding: 0.4rem 0.9rem;
+  background: var(--bg-card);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text);
 }
 #video-container {
   width: 100%;
@@ -396,6 +428,19 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   font-weight: 500;
 }
 .video-fallback:hover { text-decoration: underline; }
+.btn-open-tiktok {
+  display: inline-block !important;
+  margin-top: 0.75rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--accent);
+  color: #fff !important;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none !important;
+  transition: background 0.2s;
+}
+.btn-open-tiktok:hover { background: var(--accent-strong); color: #fff; }
 
 #vote-area { margin-top: 1rem; width: 100%; }
 #vote-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
@@ -415,8 +460,17 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   object-fit: cover;
   border: 4px solid var(--accent);
   box-shadow: var(--shadow-soft);
+  transition: transform 0.15s ease, opacity 0.15s ease;
 }
-#roulette-name { font-size: 1.25rem; font-weight: 600; margin-top: 0.5rem; color: var(--text); }
+#roulette-container.roulette-tick #roulette-avatar,
+#roulette-container.roulette-tick #roulette-name { opacity: 0.85; transform: scale(0.98); }
+#roulette-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+  color: var(--text);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
 #reveal-scores { margin-top: 1rem; text-align: left; width: 100%; max-width: 280px; }
 #reveal-scores div { display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.9rem; color: var(--text-muted); }
 #reveal-scores .pts-gained { color: var(--success); font-weight: 500; margin-left: 0.2rem; }

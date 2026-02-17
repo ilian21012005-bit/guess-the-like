@@ -90,12 +90,13 @@ async function getVideosForRoom(roomCode, playerIds, limit = 50) {
     params
   );
   let list = res && res.rows ? res.rows : [];
-  if (list.length < cap) {
+  if (list.length > 0 && list.length < cap) {
     const fallback = await query(
       `SELECT ul.id, ul.video_url, ul.player_id FROM user_likes ul
        WHERE ul.player_id IN (${placeholders})
        ORDER BY ul.play_count ASC, ul.last_played_at ASC NULLS FIRST
-       LIMIT 100`
+       LIMIT 100`,
+      params
     );
     const existingIds = new Set(list.map(r => r.id));
     const extra = (fallback && fallback.rows ? fallback.rows : []).filter(r => !existingIds.has(r.id));
@@ -118,6 +119,27 @@ async function getPlayerById(playerId) {
   return res && res.rows[0] ? res.rows[0] : null;
 }
 
+/**
+ * Nombre de vidéos encore jouables (jamais dans play_history) par joueur.
+ * @param {number[]} playerIds
+ * @returns {Promise<Record<number, number>>} playerId -> count
+ */
+async function getPlayableVideoCount(playerIds) {
+  if (!pool || !playerIds.length) return {};
+  const placeholders = playerIds.map((_, i) => `$${i + 1}`).join(',');
+  const res = await query(
+    `SELECT ul.player_id, COUNT(*)::int AS c
+     FROM user_likes ul
+     WHERE ul.player_id IN (${placeholders})
+     AND NOT EXISTS (SELECT 1 FROM play_history ph WHERE ph.video_id = ul.id)
+     GROUP BY ul.player_id`,
+    playerIds
+  );
+  const out = {};
+  if (res && res.rows) for (const row of res.rows) out[row.player_id] = row.c;
+  return out;
+}
+
 module.exports = {
   pool,
   query,
@@ -130,4 +152,5 @@ module.exports = {
   getVideosForRoom,
   recordPlayedVideo,
   getPlayerById,
+  getPlayableVideoCount,
 };

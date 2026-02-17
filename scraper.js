@@ -20,6 +20,14 @@ function _logPlaywrightMissing(err) {
 // Navigateur partagé pour getTikTokMp4Buffer (évite un launch par vidéo, ~5–10 s gagnés par appel).
 let _sharedBrowser = null;
 let _sharedBrowserPromise = null;
+function _resetSharedBrowserIfClosed(err) {
+  const msg = err && (err.message || String(err)) || '';
+  if (/has been closed|Target page, context or browser has been closed/i.test(msg)) {
+    _sharedBrowser = null;
+    _sharedBrowserPromise = null;
+    console.warn('[scraper] shared browser invalidated (closed/crash), next call will relaunch');
+  }
+}
 async function _getSharedBrowser() {
   if (_sharedBrowser) return _sharedBrowser;
   if (_sharedBrowserPromise) return _sharedBrowserPromise;
@@ -488,6 +496,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     return { buffer, contentType };
   } catch (err) {
     try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] getTikTokMp4Buffer context.close:', e2?.message); }
+    _resetSharedBrowserIfClosed(err);
     console.error('[scraper] getTikTokMp4Buffer error after', Date.now() - t0, 'ms:', err?.message || err);
     _logPlaywrightMissing(err);
     return { error: err.message || 'BUFFER_ERROR' };

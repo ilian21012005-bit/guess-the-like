@@ -796,19 +796,24 @@ io.on('connection', (socket) => {
     if (roundIndex !== currentIndex) return;
     const currentRound = rounds[currentIndex];
     const ownerId = currentRound.owner_id;
-    const isSolo = room.players.length === 1;
+    const connectedPlayers = room.players.filter(p => p.socketId);
+    const isSolo = connectedPlayers.length === 1;
     if (!isSolo && socket.id === room.players.find(p => p.playerId === ownerId)?.socketId) return;
     if (votes[socket.id] !== undefined) return;
     const responseTime = room.gameState.roundStartTime ? Date.now() - room.gameState.roundStartTime : 0;
     votes[socket.id] = { targetPlayerId, responseTime };
-    const votersExpected = isSolo ? 1 : room.players.length - 1;
+    const connectedNonOwner = room.players.filter(p => p.socketId && String(p.playerId) !== String(ownerId));
+    const votersExpected = isSolo ? 1 : connectedNonOwner.length;
     if (Object.keys(votes).length < votersExpected) return;
     const BASE_POINTS = 100;
     const STREAK_BONUS = 50;
     const pointsThisRoundByPlayer = {};
     room.players.forEach(p => {
-      const v = votes[p.socketId];
-      if (!v) return;
+      const v = p.socketId ? votes[p.socketId] : null;
+      if (!v) {
+        pointsThisRoundByPlayer[p.playerId] = 0;
+        return;
+      }
       const correct = String(v.targetPlayerId) === String(ownerId);
       if (correct) {
         p.streak = (p.streak || 0) + 1;
@@ -860,16 +865,55 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     for (const [code, room] of rooms.entries()) {
-      const idx = room.players.findIndex(p => p.socketId === socket.id);
-      if (idx === -1) continue;
-      room.players.splice(idx, 1);
-      if (room.players.length === 0) {
+      const p = room.players.find(pl => pl.socketId === socket.id);
+      if (!p) continue;
+      p.socketId = null;
+      const connected = room.players.filter(pl => pl.socketId);
+      if (connected.length === 0) {
         rooms.delete(code);
       } else {
-        if (room.hostSocketId === socket.id) room.hostSocketId = room.players[0].socketId;
+        if (room.hostSocketId === socket.id) room.hostSocketId = connected[0].socketId;
         emitRoomUpdated(room);
       }
       break;
+    }
+  });
+
+  socket.on('rejoin_room', (data, ack) => {
+    const { code, playerId } = data || {};
+    const roomCode = (code || '').toUpperCase().trim();
+    const room = getRoomByCode(roomCode);
+    if (!room) return ack?.({ error: 'Room not found' });
+    const me = room.players.find(p => String(p.playerId) === String(playerId));
+    if (!me) return ack?.({ error: 'Player not in this room' });
+    if (me.socketId) return ack?.({ error: 'Already connected' });
+    me.socketId = socket.id;
+    socket.join(roomCode);
+    touchRoom(room);
+    const { rounds, currentIndex } = room.gameState || {};
+    const currentRound = rounds && rounds[currentIndex];
+    ack?.({
+      ok: true,
+      playerId: me.playerId,
+      players: getPlayerListForRoom(room),
+      reconnected: true,
+      isHost: room.hostSocketId === socket.id,
+      gameState: room.status === 'playing' || room.status === 'preparing' ? {
+        roundIndex: currentIndex,
+        totalRounds: rounds?.length || 0,
+        videoUrl: currentRound?.video_url,
+        ownerId: currentRound?.owner_id,
+      } : null,
+    });
+    emitRoomUpdated(room);
+    if (room.status === 'playing' && currentRound) {
+      socket.emit('next_round', {
+        roundIndex: currentIndex,
+        totalRounds: rounds.length,
+        videoUrl: currentRound.video_url,
+        ownerId: currentRound.owner_id,
+        players: getPlayerListForRoom(room),
+      });
     }
   });
 });

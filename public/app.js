@@ -13,6 +13,8 @@
   let avatarDataUrl = '';
   /** Cache des vidéos préchargées (url -> Blob ou null si échec). Vidé quand la partie se termine. */
   let preloadCache = new Map();
+  const ROOM_CODE_KEY = 'wholiked_room';
+  const ROOM_PLAYER_ID_KEY = 'wholiked_playerId';
 
   const params = new URLSearchParams(window.location.search);
   if (params.get('room')) {
@@ -29,6 +31,29 @@
 
   socket.on('connect', () => {
     setConnectionStatus(true);
+    const savedCode = localStorage.getItem(ROOM_CODE_KEY);
+    const savedPlayerId = localStorage.getItem(ROOM_PLAYER_ID_KEY);
+    if (savedCode && savedPlayerId) {
+      socket.emit('rejoin_room', { code: savedCode, playerId: savedPlayerId }, (res) => {
+        if (res?.error) {
+          localStorage.removeItem(ROOM_CODE_KEY);
+          localStorage.removeItem(ROOM_PLAYER_ID_KEY);
+          return;
+        }
+        if (res.reconnected) {
+          roomCode = savedCode;
+          myPlayerId = res.playerId;
+          isHost = res.isHost === true;
+          players = res.players || [];
+          if (res.gameState) {
+            show('screen-game');
+          } else {
+            showLobby();
+            show('screen-lobby');
+          }
+        }
+      });
+    }
   });
   socket.on('disconnect', () => {
     setConnectionStatus(false);
@@ -96,6 +121,8 @@
       myPlayerId = res.playerId;
       isHost = true;
       players = res.players || [];
+      localStorage.setItem(ROOM_CODE_KEY, roomCode);
+      localStorage.setItem(ROOM_PLAYER_ID_KEY, String(myPlayerId));
       showLobby();
       show('screen-lobby');
     });
@@ -128,6 +155,8 @@
       myPlayerId = res.playerId;
       isHost = false;
       players = res.players || [];
+      localStorage.setItem(ROOM_CODE_KEY, roomCode);
+      localStorage.setItem(ROOM_PLAYER_ID_KEY, String(myPlayerId));
       showLobby();
       show('screen-lobby');
     });
@@ -497,6 +526,8 @@
   let lastGameOver = null;
   socket.on('game_over', (data) => {
     preloadCache.clear();
+    localStorage.removeItem(ROOM_CODE_KEY);
+    localStorage.removeItem(ROOM_PLAYER_ID_KEY);
     const scores = (data.scores || []).sort((a, b) => (b.score || 0) - (a.score || 0));
     lastGameOver = { scores, totalRounds: data.totalRounds || 0 };
     const totalRounds = lastGameOver.totalRounds || scores.length;

@@ -3,6 +3,7 @@ const path = require('path');
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const VIEWPORT = { width: 1280, height: 720 };
+const TIKTOK_NAV_TIMEOUT_MS = parseInt(process.env.TIKTOK_NAV_TIMEOUT_MS, 10) || 30000;
 let _playwrightMissingLogged = false;
 function _logPlaywrightMissing(err) {
   const msg = err && (err.message || String(err));
@@ -183,7 +184,7 @@ async function fetchUserLikes(username, limit = 100, options = {}) {
     }
     if (!clicked) {
       try {
-        await page.goto(`https://www.tiktok.com/@${cleanUsername}/liked`, { waitUntil: 'load', timeout: 15000 });
+        await page.goto(`https://www.tiktok.com/@${cleanUsername}/liked`, { waitUntil: 'load', timeout: TIKTOK_NAV_TIMEOUT_MS });
         if (page.url().includes('liked') || page.url().includes(cleanUsername)) clicked = true;
       } catch (_) {}
     }
@@ -329,7 +330,7 @@ async function getTikTokMp4Url(videoPageUrl) {
       mp4Urls.length = 0;
       let navOk = true;
       try {
-        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: TIKTOK_NAV_TIMEOUT_MS });
       } catch (_) {
         navOk = false;
       }
@@ -405,7 +406,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
         mp4Urls.push(u);
       }
     });
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: TIKTOK_NAV_TIMEOUT_MS });
     await page.waitForTimeout(1500);
     let mp4Url = mp4Urls[0] || null;
     if (!mp4Url) {
@@ -442,7 +443,7 @@ async function getTikTokMp4Buffer(videoPageUrl) {
       mp4Urls.length = 0;
       let fallbackNavOk = true;
       try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIKTOK_NAV_TIMEOUT_MS });
       } catch (_) {
         fallbackNavOk = false;
       }

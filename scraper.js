@@ -383,6 +383,7 @@ async function getTikTokMp4Url(videoPageUrl) {
  * @returns {Promise<{ buffer?: Buffer, contentType?: string, error?: string }>}
  */
 async function getTikTokMp4Buffer(videoPageUrl) {
+  const t0 = Date.now();
   const url = String(videoPageUrl || '').trim();
   if (!url.includes('tiktok.com') || !url.includes('/video/')) return { error: 'URL TikTok invalide' };
   const videoId = getVideoIdFromUrl(url);
@@ -483,10 +484,11 @@ async function getTikTokMp4Buffer(videoPageUrl) {
     if (!ok) {
       return { error: 'CDN retourne ' + response.status() };
     }
+    console.log('[scraper] getTikTokMp4Buffer ok in', Date.now() - t0, 'ms');
     return { buffer, contentType };
   } catch (err) {
     try { if (context) await context.close(); } catch (e2) { console.warn('[scraper] getTikTokMp4Buffer context.close:', e2?.message); }
-    console.error('[scraper] getTikTokMp4Buffer error:', err?.message || err);
+    console.error('[scraper] getTikTokMp4Buffer error after', Date.now() - t0, 'ms:', err?.message || err);
     _logPlaywrightMissing(err);
     return { error: err.message || 'BUFFER_ERROR' };
   }

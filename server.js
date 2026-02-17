@@ -74,16 +74,27 @@ function runServerPreload(roomCode, rounds) {
     const job = jobs.shift();
     if (!job) return;
     const { roomCode: rc, index, url } = job;
+    const t0 = Date.now();
+    console.log('[preload] round %s/%s start', index + 1, total);
     let result = await fetchOneVideoForPreload(url);
     if (!result && index < minBeforeStart) {
       result = await fetchOneVideoForPreload(url);
     }
+    const elapsed = Date.now() - t0;
     const entry = serverPreloadCache.get(rc);
     if (entry) {
       entry.rounds[index] = result;
-      if (!result) console.warn('[preload] round %s stocké null (timeout ou erreur) url=%s', index, (url || '').slice(0, 120));
+      if (result) {
+        console.log('[preload] round %s/%s done in %s ms', index + 1, total, elapsed);
+      } else {
+        console.warn('[preload] round %s/%s failed after %s ms url=%s', index + 1, total, elapsed, (url || '').slice(0, 80));
+      }
     }
     completed++;
+    if (completed % 10 === 0) {
+      const mem = process.memoryUsage();
+      console.log('[preload] memory heapUsed=%s MB rss=%s MB (after %s/%s)', Math.round(mem.heapUsed / 1024 / 1024), Math.round(mem.rss / 1024 / 1024), completed, total);
+    }
     io.to(rc).emit('preload_progress', { roomCode: rc, loaded: completed, total });
     if (completed >= minBeforeStart && !gameStartedEmitted) {
       const r = getRoomByCode(rc);
@@ -93,6 +104,11 @@ function runServerPreload(roomCode, rounds) {
         const playersForClient = getPlayerListForRoom(r);
         io.to(rc).emit('game_started', { players: playersForClient, totalRounds: total });
       }
+    }
+    if (completed === total && entry) {
+      const success = entry.rounds.filter(Boolean).length;
+      const fail = total - success;
+      console.log('[preload] room %s stats: %s success, %s fail (PLAYWRIGHT_CONCURRENT=%s)', rc, success, fail, PLAYWRIGHT_CONCURRENT);
     }
     processNext();
   };

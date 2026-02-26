@@ -916,6 +916,22 @@ io.on('connection', (socket) => {
       });
     }
   });
+
+  socket.on('leave_room', (data) => {
+    const roomCode = (data?.code || '').toUpperCase().trim();
+    const room = getRoomByCode(roomCode);
+    if (!room) return;
+    const idx = room.players.findIndex(p => p.socketId === socket.id);
+    if (idx === -1) return;
+    room.players.splice(idx, 1);
+    socket.leave(roomCode);
+    if (room.players.length === 0) {
+      rooms.delete(roomCode);
+    } else {
+      if (room.hostSocketId === socket.id) room.hostSocketId = room.players[0].socketId;
+      emitRoomUpdated(room);
+    }
+  });
 });
 
 const PORT = config.PORT;

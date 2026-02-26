@@ -582,6 +582,22 @@
     showLobby();
   });
 
+  function quitGame() {
+    if (roomCode) socket.emit('leave_room', { code: roomCode });
+    localStorage.removeItem(ROOM_CODE_KEY);
+    localStorage.removeItem(ROOM_PLAYER_ID_KEY);
+    roomCode = '';
+    myPlayerId = null;
+    players = [];
+    isHost = false;
+    document.removeEventListener('keydown', voteKeyHandler);
+    show('screen-home');
+  }
+  const btnQuitGame = $('btn-quit-game');
+  const btnQuitGameReveal = $('btn-quit-game-reveal');
+  if (btnQuitGame) btnQuitGame.addEventListener('click', quitGame);
+  if (btnQuitGameReveal) btnQuitGameReveal.addEventListener('click', quitGame);
+
   (function () {
     const btn = $('btn-volume');
     const slider = $('volume-slider');

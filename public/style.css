@@ -449,6 +449,8 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 .vote-owner-hint { font-size: 0.9rem; color: var(--accent); margin-bottom: 0.5rem; }
 .vote-feedback { font-size: 0.95rem; color: var(--success); margin-top: 0.5rem; }
 .scores-inline { margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); }
+.quit-game-wrap { margin-top: 1.25rem; }
+.btn-quit-game { font-size: 0.9rem; }
 
 /* Reveal */
 #screen-reveal .reveal-label { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
@@ -478,6 +480,7 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 .btn-next-round { padding: 0.75rem 1.5rem; font-size: 1rem; font-weight: 600; }
 .reveal-wait-host { font-size: 0.95rem; color: var(--text-muted); margin-top: 0.5rem; }
 .reveal-auto-next { font-size: 0.95rem; color: var(--text-muted); margin-top: 0.5rem; }
+#reveal-next-area .quit-game-wrap { margin-top: 1rem; }
 
 /* Game over */
 #screen-gameover h2 { margin-bottom: 1rem; color: var(--text); }

@@ -281,7 +281,11 @@
     const barEl = $('preload-bar');
     show('screen-preload');
     if (progressEl) progressEl.textContent = '0 / ' + preloadTotal;
-    if (barEl) barEl.style.width = '0%';
+    if (barEl) {
+      barEl.style.width = '0%';
+      barEl.setAttribute('aria-valuenow', 0);
+      barEl.setAttribute('aria-valuemax', preloadTotal);
+    }
     const bgMsg = $('preload-background-msg');
     if (bgMsg) bgMsg.classList.add('hidden');
   });
@@ -290,10 +294,14 @@
     if ((data.roomCode || '').toUpperCase() !== roomCode) return;
     const progressEl = $('preload-progress');
     const barEl = $('preload-bar');
-    const loaded = data.loaded || 0;
-    const total = data.total || 1;
-    if (progressEl) progressEl.textContent = loaded + ' / ' + total;
-    if (barEl) barEl.style.width = Math.round((loaded / total) * 100) + '%';
+    const loaded = data.loaded != null ? data.loaded : 0;
+    const total = data.total != null ? data.total : 0;
+    if (barEl) {
+      barEl.setAttribute('aria-valuenow', loaded);
+      barEl.setAttribute('aria-valuemax', total || 1);
+    }
+    if (progressEl) progressEl.textContent = loaded + ' / ' + (total || 1);
+    if (barEl) barEl.style.width = (total ? Math.round((loaded / total) * 100) : 0) + '%';
     if (loaded >= 2 && total > 2) {
       const bgMsg = $('preload-background-msg');
       if (bgMsg) bgMsg.classList.remove('hidden');

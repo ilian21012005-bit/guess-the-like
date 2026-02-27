@@ -8,6 +8,7 @@
     "test": "jest --forceExit",
     "db:init": "node scripts/init-db.js",
     "db:clear": "node scripts/clear-db.js",
+    "migrate": "node migrations/run.js",
     "setup-session": "node scripts/setup-tiktok-session.js"
   },
   "dependencies": {

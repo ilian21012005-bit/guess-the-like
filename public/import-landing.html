@@ -36,8 +36,9 @@
         return;
       }
 
+      var allowedOrigins = ['https://www.tiktok.com', 'https://tiktok.com'];
       window.addEventListener('message', function (e) {
-        if (!e.origin.includes('tiktok.com')) return;
+        if (allowedOrigins.indexOf(e.origin) === -1) return;
         if (!e.data || e.data.type !== 'tiktok-likes' || !Array.isArray(e.data.urls)) return;
         msgEl.className = 'status waiting';
         msgEl.textContent = 'Envoi en cours…';

@@ -277,6 +277,13 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   max-width: 280px;
 }
 .preload-background-msg.hidden { display: none !important; }
+.preload-pool-warning {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0.75rem 0 0;
+  max-width: 280px;
+}
+.preload-pool-warning.hidden { display: none !important; }
 
 /* Countdown */
 #screen-countdown { justify-content: center; }

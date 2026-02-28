@@ -77,9 +77,26 @@ function register(app, deps) {
         const cached = entry.rounds[index];
         if (cached && cached.buffer) {
           console.log('[tiktok-video] cache hit room=%s index=%s', roomCode, index);
-          res.setHeader('Content-Type', cached.contentType || 'video/mp4');
-          res.setHeader('Content-Length', cached.buffer.length);
-          return res.status(200).end(cached.buffer);
+          const buf = cached.buffer;
+          const len = buf.length;
+          const contentType = (cached.contentType || 'video/mp4').split(';')[0].trim() || 'video/mp4';
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Accept-Ranges', 'bytes');
+          const range = req.headers.range;
+          if (range && /^bytes=(\d*)-(\d*)$/.test(range)) {
+            const [, startStr, endStr] = range.match(/^bytes=(\d*)-(\d*)$/);
+            const start = startStr === '' ? 0 : Math.min(parseInt(startStr, 10), len - 1);
+            const end = endStr === '' ? len - 1 : Math.min(parseInt(endStr, 10), len - 1);
+            if (start <= end) {
+              const chunk = buf.slice(start, end + 1);
+              res.setHeader('Content-Range', 'bytes ' + start + '-' + end + '/' + len);
+              res.setHeader('Content-Length', chunk.length);
+              res.status(206);
+              return res.end(chunk);
+            }
+          }
+          res.setHeader('Content-Length', len);
+          return res.status(200).end(buf);
         }
         console.warn('[tiktok-video] cache miss (null) room=%s index=%s url=%s', roomCode, index, (pageUrl || '').trim().slice(0, 120));
       }

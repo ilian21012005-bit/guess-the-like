@@ -30,10 +30,11 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' https://fonts.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com",
     "connect-src 'self'",
     "img-src 'self' data: https:",
+    "media-src 'self' blob:",
     "frame-src 'self' https://www.tiktok.com",
   ].join('; '));
   next();

@@ -268,7 +268,6 @@
         setError('lobby-error', res.error);
         return;
       }
-      // La transition vers le jeu se fait via game_preparing puis game_started (après préchargement).
     });
   });
 

@@ -242,18 +242,10 @@ function attach(io, deps) {
       if (!roomPlayed.has(roomCode)) roomPlayed.set(roomCode, new Set());
       const played = roomPlayed.get(roomCode);
       let rounds = [];
-      let pool = [];
       if (db.pool) {
         try {
-          const limit = Math.min(100, totalRounds + 50);
-          const fromDb = await db.getVideosForRoom(roomCode, playerIds, limit);
-          const available = fromDb.filter((r) => !played.has(r.id));
-          for (let i = available.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [available[i], available[j]] = [available[j], available[i]];
-          }
-          rounds = available.slice(0, totalRounds);
-          pool = available.slice(totalRounds);
+          const fromDb = await db.getVideosForRoom(roomCode, playerIds, totalRounds);
+          rounds = fromDb.filter((r) => !played.has(r.id));
         } catch (err) {
           console.error('[start_game] getVideosForRoom failed:', err?.message || err);
         }
@@ -270,7 +262,6 @@ function attach(io, deps) {
           [all[i], all[j]] = [all[j], all[i]];
         }
         rounds = all.slice(0, totalRounds);
-        pool = all.slice(totalRounds);
       }
       if (!rounds.length) {
         const mem = roomLikes.get((roomCode || '').toUpperCase());
@@ -308,7 +299,7 @@ function attach(io, deps) {
       const preloadTotal = rounds.length;
       io.to(roomCode).emit('game_preparing', { roundUrls: rounds.map((r) => r.video_url), totalRounds: rounds.length, preloadTotal, players: playersForClient });
       ack?.({ ok: true });
-      runServerPreload(io, getRoomByCode, getPlayerListForRoom, roomCode, rounds, pool);
+      runServerPreload(io, getRoomByCode, getPlayerListForRoom, roomCode, rounds);
     });
 
     socket.on('preload_done', (data) => {
@@ -360,7 +351,7 @@ function attach(io, deps) {
     socket.on('video_play_failed', (data) => {
       const { code, roundIndex, videoUrl } = data || {};
       const roomCode = (code || '').toUpperCase();
-      console.warn('[video] client signale lecture impossible round=%s url=%s room=%s', roundIndex, (videoUrl || '').slice(0, 120), roomCode);
+      console.warn('[video] client signale lecture impossible round=%s url=%s room=%s', roundIndex, (videoUrl || '').slice(0, 80), roomCode);
     });
 
     socket.on('submit_vote', (data) => {

@@ -47,17 +47,18 @@ async function addPlayerToRoom(roomId, playerId, socketId) {
 
 async function saveLikes(playerId, videoUrls) {
   if (!pool || !playerId || !videoUrls.length) return 0;
-  let inserted = 0;
+  const urls = [];
+  const videoIdsTiktok = [];
   for (const url of videoUrls) {
     const idMatch = url.match(/\/video\/(\d+)/);
-    const videoIdTiktok = idMatch ? idMatch[1] : null;
-    const res = await query(
-      'INSERT INTO user_likes (player_id, video_url, video_id_tiktok) VALUES ($1, $2, $3) ON CONFLICT (video_id_tiktok) DO NOTHING RETURNING id',
-      [playerId, url, videoIdTiktok]
-    );
-    if (res && res.rows.length) inserted++;
+    urls.push(url);
+    videoIdsTiktok.push(idMatch ? idMatch[1] : null);
   }
-  return inserted;
+  const res = await query(
+    'INSERT INTO user_likes (player_id, video_url, video_id_tiktok) SELECT $1, unnest($2::text[]), unnest($3::text[]) ON CONFLICT (video_id_tiktok) DO NOTHING RETURNING id',
+    [playerId, urls, videoIdsTiktok]
+  );
+  return res && res.rows ? res.rows.length : 0;
 }
 
 /**

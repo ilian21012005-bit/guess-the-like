@@ -110,6 +110,20 @@ function attach(io, deps) {
       ack?.({ playerId, players: getPlayerListForRoom(room) });
     });
 
+    socket.on('update_avatar', (data, ack) => {
+      const { code, avatarUrl } = data || {};
+      const room = getRoomByCode((code || '').toUpperCase());
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
+      const me = room.players.find((p) => p.socketId === socket.id);
+      if (!me) return ack?.({ error: 'Tu n\'es pas dans ce salon.' });
+      if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.length > 500000) return ack?.({ error: 'Image trop lourde (max ~500 Ko).' });
+      const url = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : null;
+      me.avatarUrl = url || null;
+      touchRoom(room);
+      emitRoomUpdated(room);
+      ack?.({ ok: true });
+    });
+
     socket.on('create_bookmarklet_token', (data, ack) => {
       const { code } = data || {};
       const room = getRoomByCode((code || '').toUpperCase());
@@ -446,13 +460,20 @@ function attach(io, deps) {
     });
 
     socket.on('rejoin_room', (data, ack) => {
-      const { code, playerId } = data || {};
+      const { code, playerId, username } = data || {};
       const roomCode = (code || '').toUpperCase().trim();
       const room = getRoomByCode(roomCode);
-      if (!room) return ack?.({ error: 'Room not found' });
-      const me = room.players.find((p) => String(p.playerId) === String(playerId));
-      if (!me) return ack?.({ error: 'Player not in this room' });
-      if (me.socketId) return ack?.({ error: 'Already connected' });
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
+      let me = null;
+      if (playerId) {
+        me = room.players.find((p) => String(p.playerId) === String(playerId));
+      }
+      if (!me && username && String(username).trim()) {
+        const u = String(username).trim().toLowerCase();
+        me = room.players.find((p) => !p.socketId && (p.username || '').trim().toLowerCase() === u);
+      }
+      if (!me) return ack?.({ error: 'Joueur introuvable dans ce salon ou déjà connecté. Utilise le même pseudo que dans la partie.' });
+      if (me.socketId) return ack?.({ error: 'Déjà connecté avec ce compte.' });
       me.socketId = socket.id;
       socket.join(roomCode);
       touchRoom(room);

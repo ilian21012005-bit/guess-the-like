@@ -40,11 +40,46 @@
       </div>
       <p id="home-error" class="error"></p>
       <p class="hint">Sur un hébergement gratuit, le serveur peut mettre ~1 min à démarrer. Si ton ami ne peut pas rejoindre, assure-toi qu’il ouvre le lien juste après que tu aies créé la partie.</p>
+      <div class="rejoin-box">
+        <p class="rejoin-title">Tu as quitté par erreur ?</p>
+        <p class="rejoin-desc">Entre le code du salon et ton <strong>même pseudo</strong> pour revenir dans la partie.</p>
+        <input type="text" id="rejoin-code" placeholder="Code du salon" maxlength="8" class="code-input" />
+        <input type="text" id="rejoin-username" placeholder="Ton pseudo" maxlength="50" />
+        <button type="button" id="btn-rejoin">Revenir dans la partie</button>
+        <p id="rejoin-error" class="error small"></p>
+      </div>
     </section>
 
     <!-- Lobby -->
     <section id="screen-lobby" class="screen hidden">
       <h2>Salon <span id="lobby-code"></span> <button type="button" id="btn-copy-code" class="btn-copy-code" title="Copier le code">📋 Copier</button></h2>
+      <div class="lobby-avatar-box" id="lobby-avatar-box">
+        <p class="lobby-avatar-label">Ma photo de profil</p>
+        <img id="lobby-my-avatar" class="lobby-my-avatar" src="" alt="Ma photo" />
+        <div class="lobby-avatar-actions">
+          <label class="btn-avatar-file lobby-avatar-file"><input type="file" id="lobby-avatar-file" accept="image/*" hidden /> Choisir une image</label>
+          <input type="url" id="lobby-avatar-url" class="lobby-avatar-url" placeholder="Ou coller une URL" />
+          <button type="button" id="btn-lobby-update-avatar">Mettre à jour la photo</button>
+        </div>
+        <p id="lobby-avatar-error" class="error small hidden"></p>
+      </div>
+      <!-- Modale zoom/recadrage photo pour le cercle -->
+      <div id="avatar-crop-modal" class="avatar-crop-modal hidden" aria-modal="true" aria-label="Ajuster la photo au cercle">
+        <div class="avatar-crop-backdrop"></div>
+        <div class="avatar-crop-content">
+          <p class="avatar-crop-title">Ajuster la photo au cercle</p>
+          <p class="avatar-crop-hint">Zoome et déplace l’image pour cadrer.</p>
+          <div class="avatar-crop-viewport" id="avatar-crop-viewport">
+            <img id="avatar-crop-img" src="" alt="" />
+          </div>
+          <label class="avatar-crop-zoom-label">Zoom <span id="avatar-crop-zoom-value">1</span>×</label>
+          <input type="range" id="avatar-crop-zoom" class="avatar-crop-zoom" min="0.5" max="3" step="0.1" value="1" />
+          <div class="avatar-crop-buttons">
+            <button type="button" id="avatar-crop-cancel" class="btn-secondary">Annuler</button>
+            <button type="button" id="avatar-crop-apply">Valider</button>
+          </div>
+        </div>
+      </div>
       <p class="instruction instruction-summary">
         TikTok → Console (F12) → copie le script → colle ici et importe.
         <button type="button" id="btn-toggle-steps" class="link-btn" aria-expanded="false">Voir le détail</button>
@@ -95,6 +130,10 @@
 
     <!-- Jeu : vidéo + vote -->
     <section id="screen-game" class="screen hidden">
+      <div class="game-room-code" id="game-room-code-wrap">
+        <span>Code du salon : <strong id="game-room-code">—</strong></span>
+        <button type="button" id="btn-copy-game-code" class="btn-copy-game-code" title="Copier le code">📋 Copier</button>
+      </div>
       <div class="round-info round-badge">Round <span id="round-num">1</span> / <span id="round-total">50</span></div>
       <div id="video-container">
         <p id="video-loading" class="video-loading hidden">Extraction de la vidéo en cours…</p>

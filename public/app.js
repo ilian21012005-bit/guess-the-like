@@ -11,6 +11,8 @@
   let isHost = false;
   let players = [];
   let avatarDataUrl = '';
+  /** Photo choisie dans le lobby (file → data URL) avant clic "Mettre à jour". */
+  let lobbyAvatarDataUrl = '';
   /** Cache des vidéos préchargées (url -> Blob ou null si échec). Vidé quand la partie se termine. */
   let preloadCache = new Map();
   const ROOM_CODE_KEY = 'wholiked_room';
@@ -46,6 +48,8 @@
           isHost = res.isHost === true;
           players = res.players || [];
           if (res.gameState) {
+            const codeEl = $('game-room-code');
+            if (codeEl) codeEl.textContent = roomCode;
             show('screen-game');
           } else {
             showLobby();
@@ -57,6 +61,12 @@
   });
   socket.on('disconnect', () => {
     setConnectionStatus(false);
+    const banner = document.getElementById('reconnect-banner');
+    if (banner) {
+      banner.textContent = roomCode
+        ? 'Déconnecté. Recharge la page pour revenir dans la partie.'
+        : 'Reconnexion en cours…';
+    }
   });
   setConnectionStatus(socket.connected);
 
@@ -162,10 +172,60 @@
     });
   });
 
+  $('btn-rejoin').addEventListener('click', () => {
+    const code = $('rejoin-code').value.trim().toUpperCase();
+    const username = $('rejoin-username').value.trim();
+    setError('home-error', '');
+    setError('rejoin-error', '');
+    if (!code) { setError('rejoin-error', 'Entre le code du salon'); return; }
+    if (!username) { setError('rejoin-error', 'Entre ton pseudo (celui de la partie)'); return; }
+    if (!socket.connected) {
+      setError('rejoin-error', 'Connexion en cours… Attends que la bannière disparaisse puis réessaie.');
+      return;
+    }
+    const btn = $('btn-rejoin');
+    const prevText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Connexion…'; }
+    socket.emit('rejoin_room', { code, username }, (res) => {
+      if (btn) { btn.disabled = false; btn.textContent = prevText; }
+      if (res?.error) { setError('rejoin-error', res.error); return; }
+      if (res.reconnected) {
+        roomCode = code;
+        myPlayerId = res.playerId;
+        isHost = res.isHost === true;
+        players = res.players || [];
+        localStorage.setItem(ROOM_CODE_KEY, roomCode);
+        localStorage.setItem(ROOM_PLAYER_ID_KEY, String(myPlayerId));
+        if (res.gameState) {
+          const codeEl = $('game-room-code');
+          if (codeEl) codeEl.textContent = roomCode;
+          show('screen-game');
+        } else {
+          showLobby();
+          show('screen-lobby');
+        }
+      }
+    });
+  });
+
+  $('btn-copy-game-code').addEventListener('click', () => {
+    if (!roomCode) return;
+    const btn = $('btn-copy-game-code');
+    navigator.clipboard.writeText(roomCode).then(() => {
+      if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = '📋 Copier'; }, 2000); }
+    }).catch(() => {});
+  });
+
   function showLobby() {
     $('lobby-code').textContent = roomCode;
     const opts = $('lobby-options');
     if (opts) opts.classList.toggle('hidden', !isHost);
+    const me = (players || []).find((p) => String(p.playerId) === String(myPlayerId));
+    const avatarImg = $('lobby-my-avatar');
+    if (avatarImg) {
+      avatarImg.src = me?.avatarUrl || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(me?.username || 'me'));
+      avatarImg.alt = me?.username || 'Ma photo';
+    }
     $('lobby-players').innerHTML = (players || []).map(p => {
       const readyStr = p.isReady ? '✓ Prêt' : '...';
       const countStr = (p.playableCount !== undefined && p.playableCount !== null) ? ` · ${p.playableCount} vidéo(s) jouable(s)` : '';
@@ -197,6 +257,161 @@
       if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = '📋 Copier'; }, 2000); }
     });
   });
+
+  (function () {
+    const CROP_SIZE = 200;
+    const modal = $('avatar-crop-modal');
+    const viewport = $('avatar-crop-viewport');
+    const cropImg = $('avatar-crop-img');
+    const zoomSlider = $('avatar-crop-zoom');
+    const zoomValueEl = $('avatar-crop-zoom-value');
+    let cropZoom = 1;
+    let cropOffsetX = 0;
+    let cropOffsetY = 0;
+    let cropDragStart = null;
+
+    function openAvatarCropModal(imageSrc) {
+      if (!cropImg || !modal) return;
+      const applyBtn = $('avatar-crop-apply');
+      if (applyBtn) applyBtn.disabled = true;
+      cropImg.onload = function () {
+        if (applyBtn) applyBtn.disabled = false;
+        applyCropTransform();
+      };
+      cropImg.onerror = function () { if (applyBtn) applyBtn.disabled = false; };
+      cropImg.src = imageSrc;
+      cropImg.crossOrigin = imageSrc.startsWith('http') ? 'anonymous' : null;
+      cropZoom = 1;
+      cropOffsetX = 0;
+      cropOffsetY = 0;
+      if (zoomSlider) { zoomSlider.value = 1; }
+      if (zoomValueEl) zoomValueEl.textContent = '1';
+      applyCropTransform();
+      modal.classList.remove('hidden');
+    }
+    function closeAvatarCropModal() {
+      if (modal) modal.classList.add('hidden');
+      cropImg.src = '';
+    }
+    function applyCropTransform() {
+      if (!cropImg) return;
+      cropImg.style.transform = 'translate(-50%, -50%) scale(' + cropZoom + ') translate(' + cropOffsetX + 'px, ' + cropOffsetY + 'px)';
+    }
+    function cropToCircleDataUrl() {
+      if (!cropImg || !cropImg.complete || !cropImg.naturalWidth) return null;
+      const nw = cropImg.naturalWidth;
+      const nh = cropImg.naturalHeight;
+      const min = Math.min(nw, nh);
+      const half = min / (2 * cropZoom);
+      const sx = nw / 2 - half - (cropOffsetX / cropZoom) * (min / CROP_SIZE);
+      const sy = nh / 2 - half - (cropOffsetY / cropZoom) * (min / CROP_SIZE);
+      const sw = min / cropZoom;
+      const sh = min / cropZoom;
+      const canvas = document.createElement('canvas');
+      canvas.width = CROP_SIZE;
+      canvas.height = CROP_SIZE;
+      const ctx = canvas.getContext('2d');
+      ctx.beginPath();
+      ctx.arc(CROP_SIZE / 2, CROP_SIZE / 2, CROP_SIZE / 2, 0, 2 * Math.PI);
+      ctx.clip();
+      ctx.drawImage(cropImg, sx, sy, sw, sh, 0, 0, CROP_SIZE, CROP_SIZE);
+      try {
+        return canvas.toDataURL('image/jpeg', 0.92);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    if (zoomSlider) {
+      zoomSlider.addEventListener('input', function () {
+        cropZoom = Math.max(0.5, Math.min(3, parseFloat(this.value) || 1));
+        if (zoomValueEl) zoomValueEl.textContent = cropZoom.toFixed(1);
+        applyCropTransform();
+      });
+    }
+    if (viewport) {
+      viewport.addEventListener('mousedown', function (e) {
+        cropDragStart = { x: e.clientX - cropOffsetX, y: e.clientY - cropOffsetY };
+      });
+      viewport.addEventListener('touchstart', function (e) {
+        if (e.touches.length) cropDragStart = { x: e.touches[0].clientX - cropOffsetX, y: e.touches[0].clientY - cropOffsetY };
+      }, { passive: true });
+    }
+    document.addEventListener('mousemove', function (e) {
+      if (!cropDragStart) return;
+      cropOffsetX = e.clientX - cropDragStart.x;
+      cropOffsetY = e.clientY - cropDragStart.y;
+      applyCropTransform();
+    });
+    document.addEventListener('touchmove', function (e) {
+      if (!cropDragStart || !e.touches.length) return;
+      cropOffsetX = e.touches[0].clientX - cropDragStart.x;
+      cropOffsetY = e.touches[0].clientY - cropDragStart.y;
+      applyCropTransform();
+    }, { passive: true });
+    document.addEventListener('mouseup', () => { cropDragStart = null; });
+    document.addEventListener('touchend', () => { cropDragStart = null; });
+
+    $('avatar-crop-cancel').addEventListener('click', closeAvatarCropModal);
+    modal && modal.querySelector('.avatar-crop-backdrop').addEventListener('click', closeAvatarCropModal);
+    $('avatar-crop-apply').addEventListener('click', function () {
+      const dataUrl = cropToCircleDataUrl();
+      closeAvatarCropModal();
+      if (!dataUrl) return;
+      const setLobbyAvatarError = (msg) => {
+        const el = $('lobby-avatar-error');
+        if (el) { el.textContent = msg || ''; el.classList.toggle('hidden', !msg); }
+      };
+      if (dataUrl.length > 500000) { setLobbyAvatarError('Image trop lourde (max ~500 Ko). Réduis le zoom ou choisis une image plus légère.'); return; }
+      socket.emit('update_avatar', { code: roomCode, avatarUrl: dataUrl }, (res) => {
+        if (res?.error) { setLobbyAvatarError(res.error); return; }
+        lobbyAvatarDataUrl = '';
+        const urlInput = $('lobby-avatar-url');
+        const fileInput = $('lobby-avatar-file');
+        if (urlInput) urlInput.value = '';
+        if (fileInput) fileInput.value = '';
+        const me = (players || []).find((p) => String(p.playerId) === String(myPlayerId));
+        if (me) me.avatarUrl = dataUrl;
+        showLobby();
+      });
+    });
+
+    const fileInput = $('lobby-avatar-file');
+    const urlInput = $('lobby-avatar-url');
+    const setLobbyAvatarError = (msg) => {
+      const el = $('lobby-avatar-error');
+      if (el) { el.textContent = msg || ''; el.classList.toggle('hidden', !msg); }
+    };
+    if (fileInput) {
+      fileInput.addEventListener('change', function () {
+        const f = this.files && this.files[0];
+        if (!f || !f.type.startsWith('image/')) { lobbyAvatarDataUrl = ''; return; }
+        const r = new FileReader();
+        r.onload = function () {
+          lobbyAvatarDataUrl = r.result;
+          setLobbyAvatarError('');
+          openAvatarCropModal(r.result);
+        };
+        r.readAsDataURL(f);
+      });
+    }
+    if (urlInput) urlInput.addEventListener('input', () => { lobbyAvatarDataUrl = ''; setLobbyAvatarError(''); });
+    $('btn-lobby-update-avatar').addEventListener('click', () => {
+      setLobbyAvatarError('');
+      const urlVal = urlInput && urlInput.value.trim();
+      if (!urlVal || (!urlVal.startsWith('http') && !urlVal.startsWith('data:'))) {
+        setLobbyAvatarError('Choisis une image ou colle une URL');
+        return;
+      }
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { openAvatarCropModal(urlVal); };
+      img.onerror = function () {
+        setLobbyAvatarError('Impossible de charger l’image (lien invalide ou CORS). Essaie avec « Choisir une image ».');
+      };
+      img.src = urlVal;
+    });
+  })();
 
   const stepsDetail = document.getElementById('steps-detail');
   const btnToggleSteps = document.getElementById('btn-toggle-steps');
@@ -339,6 +554,7 @@
   socket.on('next_round', (data) => {
     const { roundIndex, totalRounds, videoUrl, ownerId, players: p } = data;
     if (p) players = p;
+    if (roomCode) { const el = $('game-room-code'); if (el) el.textContent = roomCode; }
     $('round-num').textContent = (roundIndex + 1);
     $('round-total').textContent = totalRounds;
     const videoId = getVideoId(videoUrl);
@@ -435,7 +651,7 @@
         }
       }
     }
-    const isOwner = myPlayerId === ownerId;
+    const isOwner = String(myPlayerId) === String(ownerId);
     const isSolo = (players || []).length === 1;
     const canVote = isSolo || !isOwner;
     const waitOwnerEl = $('wait-owner');
@@ -446,7 +662,7 @@
     const ownerHint = $('vote-owner-hint');
     const voteFeedback = $('vote-feedback');
     if (ownerHint) ownerHint.classList.add('hidden');
-    if (voteFeedback) voteFeedback.classList.add('hidden');
+    if (voteFeedback) { voteFeedback.textContent = ''; voteFeedback.classList.add('hidden'); }
     const container = $('vote-buttons');
     container.classList.toggle('hidden', !canVote);
     if (canVote) {
@@ -672,7 +888,7 @@
     return div.innerHTML;
   }
   function escapeAttr(s) {
-    return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   if ('serviceWorker' in navigator) {

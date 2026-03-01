@@ -13,6 +13,8 @@ function register(app, deps) {
     io,
     emitRoomUpdated,
     setPlaywrightMissingLogged,
+    cleanupBookmarkletTokens,
+    getPlaywrightMissingLogged,
   } = deps;
 
   app.get('/health', (req, res) => {
@@ -22,7 +24,7 @@ function register(app, deps) {
   app.post('/api/import-likes-from-bookmarklet', (req, res) => {
     const body = req.body != null ? req.body : {};
     const { token, urls } = body;
-    deps.cleanupBookmarkletTokens();
+    cleanupBookmarkletTokens();
     const data = token ? bookmarkletTokens.get(token) : null;
     if (!data) return res.status(400).json({ error: 'Lien expiré ou invalide. Régénère le lien dans le lobby.' });
     bookmarkletTokens.delete(token);
@@ -85,8 +87,10 @@ function register(app, deps) {
           const range = req.headers.range;
           if (range && /^bytes=(\d*)-(\d*)$/.test(range)) {
             const [, startStr, endStr] = range.match(/^bytes=(\d*)-(\d*)$/);
-            const start = startStr === '' ? 0 : Math.min(parseInt(startStr, 10), len - 1);
-            const end = endStr === '' ? len - 1 : Math.min(parseInt(endStr, 10), len - 1);
+            const rawStart = startStr === '' ? 0 : parseInt(startStr, 10);
+            const rawEnd = endStr === '' ? len - 1 : parseInt(endStr, 10);
+            const start = Math.max(0, Number.isFinite(rawStart) ? Math.min(rawStart, len - 1) : 0);
+            const end = Math.min(len - 1, Number.isFinite(rawEnd) ? Math.max(0, rawEnd) : len - 1);
             if (start <= end) {
               const chunk = buf.slice(start, end + 1);
               res.setHeader('Content-Range', 'bytes ' + start + '-' + end + '/' + len);
@@ -202,7 +206,7 @@ function register(app, deps) {
         }
         const errMsg = fallback.error || '';
         if (errMsg.includes("Executable doesn't exist") || errMsg.includes('chromium')) {
-          if (!deps.getPlaywrightMissingLogged()) {
+          if (!getPlaywrightMissingLogged()) {
             setPlaywrightMissingLogged(true);
             console.warn('[tiktok-video] Secours Playwright indisponible (Chromium non installé). Vidéos en 403 sur cet hébergement.');
           }

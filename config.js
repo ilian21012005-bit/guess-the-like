@@ -39,6 +39,7 @@ module.exports = {
   // Rate limit API vidéo
   VIDEO_RATE_LIMIT_WINDOW_MS: envInt('VIDEO_RATE_LIMIT_WINDOW_MS', 120000),
   VIDEO_RATE_LIMIT_MAX: envInt('VIDEO_RATE_LIMIT_MAX', 80),
+  RATE_LIMIT_MAX_BUCKETS: envInt('RATE_LIMIT_MAX_BUCKETS', 500),
 
   // Serveur
   PORT: envInt('PORT', 3000),

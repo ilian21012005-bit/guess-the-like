@@ -152,7 +152,95 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 
 .error { color: var(--error); font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2em; }
 .hint { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; max-width: 360px; }
+.rejoin-box { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); text-align: center; }
+.rejoin-box .rejoin-title { font-size: 0.95rem; color: var(--text); margin-bottom: 0.25rem; }
+.rejoin-box .rejoin-desc { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+.rejoin-box input { margin-bottom: 0.5rem; }
+.rejoin-box .code-input { width: 6em; text-align: center; }
+.rejoin-box #btn-rejoin { margin-top: 0.25rem; }
+.rejoin-box .error.small { font-size: 0.8rem; min-height: 1em; }
 .status { color: var(--success); font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2em; }
+
+.lobby-avatar-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.lobby-avatar-label { font-size: 0.9rem; color: var(--text-muted); margin: 0 0 0.5rem 0; }
+.lobby-my-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border);
+  margin-bottom: 0.5rem;
+}
+.lobby-avatar-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; align-items: center; width: 100%; }
+.lobby-avatar-file { padding: 0.4rem 0.6rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+.lobby-avatar-url { flex: 1; min-width: 120px; padding: 0.4rem 0.6rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.lobby-avatar-box #btn-lobby-update-avatar { font-size: 0.85rem; padding: 0.4rem 0.75rem; }
+.lobby-avatar-box .error.small { font-size: 0.8rem; margin-top: 0.25rem; min-height: 1em; }
+
+/* Modale zoom/recadrage avatar (cercle) */
+.avatar-crop-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.avatar-crop-modal.hidden { display: none !important; }
+.avatar-crop-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+}
+.avatar-crop-content {
+  position: relative;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  max-width: 320px;
+  width: 100%;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+.avatar-crop-title { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.25rem 0; color: var(--text); }
+.avatar-crop-hint { font-size: 0.85rem; color: var(--text-muted); margin: 0 0 1rem 0; }
+.avatar-crop-viewport {
+  width: 200px;
+  height: 200px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #111;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+}
+.avatar-crop-viewport img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: none;
+  height: 100%;
+  width: auto;
+  min-width: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.avatar-crop-zoom-label { font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem; }
+.avatar-crop-zoom { width: 100%; margin-bottom: 1rem; accent-color: var(--accent); }
+.avatar-crop-buttons { display: flex; gap: 0.75rem; justify-content: flex-end; }
+.avatar-crop-buttons .btn-secondary { background: var(--bg); color: var(--text-muted); border: 1px solid var(--border); }
 
 #screen-lobby .instruction {
   font-size: 0.9rem;
@@ -299,6 +387,29 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   from { transform: scale(0.6); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* Game: code du salon en haut (pour le donner à celui qui a quitté) */
+.game-room-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.game-room-code strong { color: var(--text); font-weight: 600; letter-spacing: 0.05em; }
+.btn-copy-game-code {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn-copy-game-code:hover { background: var(--border); }
 
 /* Game: video — format iPhone, seule la vidéo visible, centrée */
 #screen-game .round-info {

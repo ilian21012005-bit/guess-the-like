@@ -25,12 +25,12 @@ git push -u origin main
 3. Sélectionne le repo `guess-the-like`.
 4. Render détecte `render.yaml` et affiche les ressources à créer :
    - **Web Service** `guess-the-like` (Node, plan Free)
-   - **PostgreSQL** `guess-the-like-db` (plan `basic-256mb`)
+   - **PostgreSQL** `guess-the-like-db` (plan `free` par défaut dans `render.yaml`)
 5. Clique sur **Apply** pour provisionner web + Postgres.
 
 `DATABASE_URL` est injectée automatiquement via `fromDatabase`. Les migrations SQL s’appliquent au démarrage du serveur.
 
-> **Plan DB :** si le plan Postgres **Free** est encore disponible sur ton compte, tu peux remplacer `basic-256mb` par `free` dans `render.yaml`. Sinon, garde `basic-256mb` (coût mensuel selon la grille Render).
+> **Plan DB :** le Blueprint utilise `free` pour Postgres. Si ce plan n'est plus disponible sur ton compte Render, remplace `free` par `basic-256mb` dans `render.yaml` (coût mensuel selon la grille Render).
 
 ## 3. Attendre le déploiement
 

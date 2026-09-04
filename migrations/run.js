@@ -65,6 +65,10 @@ async function runMigrations() {
 module.exports = { runMigrations };
 
 if (require.main === module) {
+  if (!pool) {
+    console.error('[migrate] Pas de DATABASE_URL — impossible d\'exécuter les migrations en CLI.');
+    process.exit(1);
+  }
   runMigrations()
     .then(() => process.exit(0))
     .catch((e) => {

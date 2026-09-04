@@ -25,7 +25,7 @@ function attach(io, deps) {
   io.on('connection', (socket) => {
     socket.on('create_room', async (data, ack) => {
       const { username, tiktokUsername, avatarUrl } = data || {};
-      if (!username?.trim()) return ack?.({ error: 'Username required' });
+      if (!username?.trim()) return ack?.({ error: 'Pseudo requis.' });
       let player = { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
       if (db.pool) {
         try {
@@ -78,9 +78,9 @@ function attach(io, deps) {
       const { code, username, tiktokUsername, avatarUrl } = data || {};
       const roomCode = (code || '').toUpperCase().trim();
       const room = getRoomByCode(roomCode);
-      if (!room) return ack?.({ error: 'Room not found' });
-      if (room.status !== 'lobby') return ack?.({ error: 'Game already started' });
-      if (!username?.trim()) return ack?.({ error: 'Username required' });
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
+      if (room.status !== 'lobby') return ack?.({ error: 'La partie a déjà commencé.' });
+      if (!username?.trim()) return ack?.({ error: 'Pseudo requis.' });
       if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.length > 500000) return ack?.({ error: 'Image de profil trop lourde (max ~500 Ko).' });
       let player = { id: socket.id, username: username.trim(), tiktok_username: (tiktokUsername || username).trim(), avatar_url: null };
       if (db.pool) {
@@ -93,7 +93,7 @@ function attach(io, deps) {
       }
       const playerId = player?.id ?? socket.id;
       const avatar = (avatarUrl && typeof avatarUrl === 'string' && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:'))) ? avatarUrl : (player?.avatar_url || null);
-      if (room.players.some((p) => p.playerId === playerId || p.socketId === socket.id)) return ack?.({ error: 'Already in room' });
+      if (room.players.some((p) => p.playerId === playerId || p.socketId === socket.id)) return ack?.({ error: 'Tu es déjà dans ce salon.' });
       room.players.push({ socketId: socket.id, playerId, username: player?.username ?? username, tiktokUsername: player?.tiktok_username ?? (tiktokUsername || username), avatarUrl: avatar, isReady: false, score: 0, streak: 0 });
       if (db.pool && room.roomId) {
         try {
@@ -127,7 +127,7 @@ function attach(io, deps) {
     socket.on('create_bookmarklet_token', (data, ack) => {
       const { code } = data || {};
       const room = getRoomByCode((code || '').toUpperCase());
-      if (!room) return ack?.({ error: 'Room not found' });
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
       const me = room.players.find((p) => p.socketId === socket.id);
       if (!me) return ack?.({ error: 'Not in room' });
       cleanupBookmarkletTokens();
@@ -139,7 +139,7 @@ function attach(io, deps) {
     socket.on('set_ready', async (data, ack) => {
       const { code } = data || {};
       const room = getRoomByCode((code || '').toUpperCase());
-      if (!room) return ack?.({ error: 'Room not found' });
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
       const me = room.players.find((p) => p.socketId === socket.id);
       if (!me) return ack?.({ error: 'Not in room' });
       const tiktokUser = (me.tiktokUsername || me.username || '').replace(/^@/, '');
@@ -206,7 +206,7 @@ function attach(io, deps) {
     socket.on('import_likes', async (data, ack) => {
       const { code, urlsText } = data || {};
       const room = getRoomByCode((code || '').toUpperCase());
-      if (!room) return ack?.({ error: 'Room not found' });
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
       const me = room.players.find((p) => p.socketId === socket.id);
       if (!me) return ack?.({ error: 'Not in room' });
       const lines = String(urlsText || '').split(/\n/).map((s) => s.trim()).filter(Boolean);
@@ -248,9 +248,9 @@ function attach(io, deps) {
       const roomCode = (data?.code || '').toUpperCase();
       const totalRounds = Math.min(Math.max(parseInt(data?.totalRounds, 10) || config.PRELOAD_INITIAL_VIDEOS, 10), config.PRELOAD_INITIAL_VIDEOS);
       const room = getRoomByCode(roomCode);
-      if (!room) return ack?.({ error: 'Room not found' });
+      if (!room) return ack?.({ error: 'Salon introuvable.' });
       if (room.hostSocketId !== socket.id) return ack?.({ error: 'Only host can start' });
-      if (room.status !== 'lobby') return ack?.({ error: 'Game already started' });
+      if (room.status !== 'lobby') return ack?.({ error: 'La partie a déjà commencé.' });
       touchRoom(room);
       const playerIds = room.players.map((p) => p.playerId);
       if (!roomPlayed.has(roomCode)) roomPlayed.set(roomCode, new Set());

@@ -3,7 +3,8 @@
 
 databases:
   - name: guess-the-like-db
-    plan: basic-256mb
+    # Si free indisponible sur le compte, remplacer par basic-256mb.
+    plan: free
 
 services:
   - type: web

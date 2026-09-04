@@ -88,7 +88,7 @@
     if (el) { el.textContent = msg || ''; el.classList.toggle('hidden', !msg); }
   };
   const serverErrorMsg = (res) =>
-    typeof res?.error === 'string' && res.error ? res.error : 'Impossible de rejoindre. Réessaie.';
+    typeof res?.error === 'string' && res.error ? res.error : 'Une erreur s\'est produite. Réessaie.';
 
   function getVideoId(url) {
     const m = (url || '').match(/\/video\/(\d+)/);

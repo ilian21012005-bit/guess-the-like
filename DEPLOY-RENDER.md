@@ -1,14 +1,14 @@
-# Mettre Guess The Like en ligne sur Render
+# Mettre Guess The Like en ligne sur Render (Blueprint)
 
-## 1. Mettre le projet sur GitHub
+Ce dépôt inclut un `render.yaml` qui provisionne le **service web** et une **base PostgreSQL** en une seule étape.
+
+## 1. Pousser le code sur GitHub
 
 1. Crée un compte sur [github.com](https://github.com) si besoin.
-2. Crée un **nouveau dépôt** (New repository), par ex. `guess-the-like`.
-3. Dans le dossier du projet (PowerShell ou terminal) :
+2. Crée un **nouveau dépôt** (ex. `guess-the-like`).
+3. Pousse le code :
 
 ```bash
-cd d:\Who-liked
-git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
@@ -18,65 +18,43 @@ git push -u origin main
 
 (Remplace `TON_USERNAME` par ton pseudo GitHub.)
 
----
+## 2. Appliquer le Blueprint Render
 
-## 2. Créer le service sur Render
+1. Va sur **[render.com](https://render.com)** et connecte-toi (GitHub recommandé).
+2. **Dashboard** → **New +** → **Blueprint**.
+3. Sélectionne le repo `guess-the-like`.
+4. Render détecte `render.yaml` et affiche les ressources à créer :
+   - **Web Service** `guess-the-like` (Node, plan Free)
+   - **PostgreSQL** `guess-the-like-db` (plan `basic-256mb`)
+5. Clique sur **Apply** pour provisionner web + Postgres.
 
-1. Va sur **[render.com](https://render.com)** et crée un compte (ou connecte-toi avec GitHub).
-2. Clique sur **Dashboard** → **New +** → **Web Service**.
-3. **Connect a repository** : autorise Render à accéder à GitHub, puis choisis le repo `guess-the-like`.
-4. Remplis comme suit :
+`DATABASE_URL` est injectée automatiquement via `fromDatabase`. Les migrations SQL s’appliquent au démarrage du serveur.
 
-| Champ | Valeur |
-|-------|--------|
-| **Name** | `guess-the-like` (ou ce que tu veux) |
-| **Region** | Choisis le plus proche (ex. Frankfurt) |
-| **Runtime** | `Node` |
-| **Build Command** | `npm install` |
-| **Start Command** | `npm start` |
-| **Instance Type** | **Free** |
+> **Plan DB :** si le plan Postgres **Free** est encore disponible sur ton compte, tu peux remplacer `basic-256mb` par `free` dans `render.yaml`. Sinon, garde `basic-256mb` (coût mensuel selon la grille Render).
 
-5. Clique sur **Create Web Service**.
+## 3. Attendre le déploiement
 
----
+- Premier déploiement : **2–5 minutes** (npm install + Playwright Chromium).
+- Quand le statut est **Live**, le site est en ligne.
+- L’URL ressemble à : `https://guess-the-like-xxxx.onrender.com`
 
-## 3. Attendre le premier déploiement
+## 4. Cold start (plan Free web)
 
-- Render va cloner le repo, lancer `npm install` puis `npm start`.
-- La première fois peut prendre **2–5 minutes** (surtout à cause de Playwright si installé).
-- Quand le statut est **Live** en vert, le site est en ligne.
+Le service web Free s’endort après ~15 min sans visite. Le premier chargement après inactivité peut prendre **30–60 secondes**.
 
----
+## 5. Dépannage Playwright / mémoire
 
-## 4. Récupérer l’URL
+- `PLAYWRIGHT_CONCURRENT=1` limite l’usage RAM sur le tier Free (512 MB).
+- Si le build ou le runtime échoue (OOM), options :
+  - monter le plan du web service ;
+  - ou retirer `&& npx playwright install chromium` du `buildCommand` / `startCommand` (scraping Playwright indisponible).
 
-- En haut de la page du service, tu vois l’URL du type :  
-  **`https://guess-the-like-xxxx.onrender.com`**
-- Partage ce lien : toi et ton ami vous y connectez pour jouer.
+## 6. Postgres Free — expiration
 
----
-
-## 5. (Optionnel) Base de données PostgreSQL
-
-Sans base de données, le jeu utilise la **mémoire** : les salles et les likes marchent, mais tout est perdu au redémarrage du service.
-
-Pour une base gratuite sur Render :
-
-1. **Dashboard** → **New +** → **PostgreSQL**.
-2. Crée une base (garde le **Internal Database URL**).
-3. Dans ton **Web Service** → **Environment** → **Add Environment Variable** :
-   - **Key** : `DATABASE_URL`
-   - **Value** : colle l’**Internal Database URL** de la base.
-4. Redéploie (manuel ou au prochain push).
-
-(Pour que la BDD soit utilisée, il faut que ton code lise `DATABASE_URL` et que les scripts type `db:init` aient été exécutés ou que le schéma soit appliqué.)
-
----
+Les bases Postgres **Free** sur Render expirent après **30 jours**. Sauvegarde ou migre vers un plan payant avant expiration si tu veux conserver les données.
 
 ## Résumé
 
 1. Repo GitHub avec le code.
-2. Render → New Web Service → repo → Build : `npm install`, Start : `npm start`.
-3. Utiliser l’URL fournie par Render pour jouer avec un ami.
-
-En **Free**, le service peut s’endormir après ~15 min sans visite ; le premier chargement après ça peut prendre 30–60 secondes.
+2. Render → **New → Blueprint** → repo → **Apply**.
+3. Ouvre l’URL Render pour jouer avec un ami.

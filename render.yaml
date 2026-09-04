@@ -1,20 +1,26 @@
-# Déploiement Render — Guess The Like
-# https://dashboard.render.com → New → Blueprint → Connect repo → ce fichier sera détecté
+# Déploiement Render — Guess The Like (Blueprint)
+# Dashboard → New → Blueprint → connecter ce repo
+
+databases:
+  - name: guess-the-like-db
+    plan: basic-256mb
 
 services:
   - type: web
     name: guess-the-like
     runtime: node
-    # Chromium nécessaire pour contourner le 403 du CDN TikTok (secours Playwright).
-    # Si le build échoue (mémoire / quota), passer à un plan payant ou retirer "&& npx playwright install chromium".
+    plan: free
     buildCommand: npm install && npx playwright install chromium
     startCommand: npx playwright install chromium && node server.js
+    healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: 20
-      # Skip getTikTokMp4Url + fetch (toujours 403) → Playwright direct.
+        value: "20"
       - key: USE_PLAYWRIGHT_DIRECT
         value: "1"
-      # Moins de workers Playwright pour tenir en 512MB (évite OOM).
       - key: PLAYWRIGHT_CONCURRENT
-        value: "4"
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: guess-the-like-db
+          property: connectionString

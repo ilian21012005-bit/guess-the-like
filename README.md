@@ -37,6 +37,16 @@ npm start
 
 Ouvre http://localhost:3000
 
+## Déploiement Render
+
+Le dépôt inclut un Blueprint (`render.yaml`) : web Node + Postgres + healthcheck `/health`. Les migrations s’appliquent au boot.
+
+1. Pousse le code sur GitHub.
+2. Render → **New → Blueprint** → sélectionne le repo → **Apply**.
+3. Ouvre l’URL du service une fois **Live**.
+
+Guide détaillé : [DEPLOY-RENDER.md](DEPLOY-RENDER.md). Cold start Free ~30–60 s ; voir le guide pour Playwright OOM et expiration Postgres Free (30 jours).
+
 ## Récupération des likes (session TikTok)
 
 Sans être connecté, TikTok ne montre pas l’onglet « A aimé ». Le scraper utilise une **session Chrome** (comme quand tu testes en manuel, connecté).

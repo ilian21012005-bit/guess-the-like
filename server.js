@@ -74,10 +74,23 @@ socketHandlers.attach(io, {
   preloadDeleteFromCache: preload.deleteFromCache,
 });
 
+const { runMigrations } = require('./migrations/run');
+
 const PORT = config.PORT;
-if (process.env.NODE_ENV !== 'test') {
+
+async function start() {
+  try {
+    await runMigrations();
+  } catch (e) {
+    console.error('[migrate] Échec:', e.message || e);
+    process.exit(1);
+  }
   server.listen(PORT, '0.0.0.0', () => {
     console.log('Guess The Like — http://0.0.0.0:' + PORT);
   });
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  start();
 }
 module.exports = { app, server };

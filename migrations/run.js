@@ -1,25 +1,13 @@
-/**
- * Exécute les migrations SQL dans l'ordre (fichiers 001_*.sql, 002_*.sql, …).
- * Utilise la table migration_history pour ne lancer que les migrations pas encore appliquées.
- *
- * Usage: node migrations/run.js
- * Prérequis: DATABASE_URL dans .env
- */
 try { require('dotenv').config(); } catch (_) {}
 const { pool } = require('../db');
 const fs = require('fs');
 const path = require('path');
 
-if (!pool) {
-  console.error('Définis DATABASE_URL dans .env pour exécuter les migrations.');
-  process.exit(1);
-}
-
 const migrationsDir = path.join(__dirname);
 const TABLE = 'migration_history';
 
-async function ensureMigrationTable() {
-  await pool.query(`
+async function ensureMigrationTable(client) {
+  await client.query(`
     CREATE TABLE IF NOT EXISTS ${TABLE} (
       name VARCHAR(255) PRIMARY KEY,
       applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -27,34 +15,40 @@ async function ensureMigrationTable() {
   `);
 }
 
-async function getApplied() {
-  const r = await pool.query(`SELECT name FROM ${TABLE}`);
+async function getApplied(client) {
+  const r = await client.query(`SELECT name FROM ${TABLE}`);
   return new Set((r.rows || []).map((row) => row.name));
 }
 
-async function recordApplied(name) {
-  await pool.query(`INSERT INTO ${TABLE} (name) VALUES ($1)`, [name]);
+async function recordApplied(client, name) {
+  await client.query(`INSERT INTO ${TABLE} (name) VALUES ($1)`, [name]);
 }
 
-async function run() {
+/**
+ * Applique les migrations idempotentes.
+ * No-op si pool (DATABASE_URL) absent.
+ */
+async function runMigrations() {
+  if (!pool) {
+    console.log('[migrate] Pas de DATABASE_URL — skip.');
+    return;
+  }
   const files = fs.readdirSync(migrationsDir)
     .filter((f) => f.endsWith('.sql'))
     .sort();
   if (files.length === 0) {
-    console.log('Aucune migration .sql trouvée.');
-    process.exit(0);
+    console.log('[migrate] Aucune migration .sql.');
     return;
   }
-  await ensureMigrationTable();
-  const applied = await getApplied();
+  await ensureMigrationTable(pool);
+  const applied = await getApplied(pool);
   for (const file of files) {
     const name = path.basename(file, '.sql');
     if (applied.has(name)) {
-      console.log('Skip (déjà appliquée):', file);
+      console.log('[migrate] Skip:', file);
       continue;
     }
-    const filePath = path.join(migrationsDir, file);
-    const sql = fs.readFileSync(filePath, 'utf8');
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
     const statements = sql
       .split(';')
       .map((s) => s.replace(/--[^\n]*/g, '').trim())
@@ -62,17 +56,22 @@ async function run() {
     for (const st of statements) {
       await pool.query(st + ';');
     }
-    await recordApplied(name);
-    console.log('Appliquée:', file);
+    await recordApplied(pool, name);
+    console.log('[migrate] Appliquée:', file);
   }
-  console.log('Migrations terminées.');
-  process.exit(0);
+  console.log('[migrate] Terminé.');
 }
 
-run().catch((e) => {
-  console.error(e.message || e);
-  if (e.code === 'ENOTFOUND' || e.message?.includes('getaddrinfo')) {
-    console.error('\n→ Utilise l’URL EXTERNE de la base (Render → Connections → External Database URL).');
-  }
-  process.exit(1);
-});
+module.exports = { runMigrations };
+
+if (require.main === module) {
+  runMigrations()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      console.error(e.message || e);
+      if (e.code === 'ENOTFOUND' || e.message?.includes('getaddrinfo')) {
+        console.error("\n→ Utilise l'URL EXTERNE de la base (Render → Connections → External Database URL).");
+      }
+      process.exit(1);
+    });
+}

@@ -214,7 +214,7 @@
     if (!roomCode) return;
     const btn = $('btn-copy-game-code');
     navigator.clipboard.writeText(roomCode).then(() => {
-      if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = '📋 Copier'; }, 2000); }
+      if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Copier'; }, 2000); }
     }).catch(() => {});
   });
 
@@ -229,11 +229,16 @@
       avatarImg.alt = me?.username || 'Ma photo';
     }
     $('lobby-players').innerHTML = (players || []).map(p => {
-      const readyStr = p.isReady ? '✓ Prêt' : '...';
-      const countStr = (p.playableCount !== undefined && p.playableCount !== null) ? ` · ${p.playableCount} vidéo(s) jouable(s)` : '';
+      const badgeClass = p.isReady ? 'player-badge player-badge--ready' : 'player-badge player-badge--waiting';
+      const badgeText = p.isReady ? 'Prêt' : 'En attente';
+      const countStr = (p.playableCount !== undefined && p.playableCount !== null)
+        ? `<span class="lobby-playable-count">${p.playableCount} vidéo(s) jouable(s)</span>`
+        : '';
       return `<li>
-        <span>${escapeHtml(p.username)}</span>
-        <span class="${p.isReady ? 'ready' : ''}">${readyStr}${countStr}</span>
+        <span class="lobby-player-name">${escapeHtml(p.username)}</span>
+        <span class="lobby-player-meta">
+          <span class="${badgeClass}">${badgeText}</span>${countStr}
+        </span>
       </li>`;
     }).join('');
     $('lobby-status').textContent = '';
@@ -256,7 +261,7 @@
     if (!roomCode) return;
     navigator.clipboard.writeText(roomCode).then(() => {
       const btn = $('btn-copy-code');
-      if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = '📋 Copier'; }, 2000); }
+      if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Copier'; }, 2000); }
     });
   });
 
@@ -689,14 +694,17 @@
     const scoresEl = $('scores-inline');
     if (scoresEl) scoresEl.innerHTML = (players || []).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5).map((pl, i) => {
       const str = (pl.streak && pl.streak > 1) ? ` (×${pl.streak})` : '';
-      return `${i + 1}. ${pl.username} ${pl.score || 0}${str}`;
-    }).join(' · ');
+      const leaderClass = i === 0 ? ' score-item-leader' : '';
+      return `<span class="score-item${leaderClass}">${i + 1}. ${escapeHtml(pl.username)} ${pl.score || 0}${str}</span>`;
+    }).join('');
     show('screen-game');
   });
 
   let rouletteTimer = null;
   socket.on('start_reveal', (data) => {
     document.removeEventListener('keydown', voteKeyHandler);
+    const revealScreen = $('screen-reveal');
+    if (revealScreen) revealScreen.classList.remove('reveal-winner');
     show('screen-reveal');
     const avatarEl = $('roulette-avatar');
     const nameEl = $('roulette-name');
@@ -719,6 +727,8 @@
   socket.on('reveal_winner', (data) => {
     if (rouletteTimer) { clearTimeout(rouletteTimer); rouletteTimer = null; }
     if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+    const revealScreen = $('screen-reveal');
+    if (revealScreen) revealScreen.classList.add('reveal-winner');
     const { ownerId, scores, hasNextRound } = data;
     const owner = (players || []).find(p => p.playerId === ownerId);
     if (owner) {

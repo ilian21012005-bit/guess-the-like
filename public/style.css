@@ -309,7 +309,35 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   border: 1px solid var(--border);
   box-shadow: 0 2px 8px rgba(45,42,38,0.04);
 }
-#lobby-players li .ready { color: var(--success); font-size: 0.85rem; font-weight: 500; }
+.lobby-player-name { font-weight: 500; }
+.lobby-player-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.player-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.player-badge--ready {
+  background: rgba(37, 244, 238, 0.12);
+  color: var(--success);
+  border: 1px solid rgba(37, 244, 238, 0.35);
+}
+.player-badge--waiting {
+  background: rgba(138, 138, 138, 0.1);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.lobby-playable-count { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
 
 .steps-box {
   margin: 1rem 0;
@@ -411,12 +439,18 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 /* Countdown */
 #screen-countdown { justify-content: center; }
 #countdown-number {
-  font-size: 5.5rem;
-  font-weight: 700;
+  font-size: 7rem;
+  font-weight: 800;
+  line-height: 1;
   color: var(--accent);
-  text-shadow: 0 4px 24px rgba(254, 44, 85, 0.35);
+  background: linear-gradient(180deg, #ff6b8a 0%, var(--accent) 45%, var(--accent-strong) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 6px 28px rgba(254, 44, 85, 0.45));
   animation: pulse 0.8s ease-out;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
 }
 @keyframes pulse {
   from { transform: scale(0.6); opacity: 0; }
@@ -606,26 +640,64 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 .btn-open-tiktok:hover { background: var(--accent-strong); color: #fff; }
 
 #vote-area { margin-top: 1rem; width: 100%; }
-#vote-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
-#vote-buttons button.vote-btn { width: auto; min-width: 110px; min-height: 48px; flex: 1 1 38%; padding: 0.75rem 1rem; }
+#vote-buttons { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
+#vote-buttons button.vote-btn {
+  width: 100%;
+  min-height: 48px;
+  flex: 1 1 auto;
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
 #wait-owner { font-size: 1rem; color: var(--text-muted); }
 .vote-owner-hint { font-size: 0.9rem; color: var(--accent); margin-bottom: 0.5rem; }
 .vote-feedback { font-size: 0.95rem; color: var(--success); margin-top: 0.5rem; }
-.scores-inline { margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); }
+.scores-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.score-item { white-space: nowrap; }
+.score-item-leader {
+  color: var(--accent);
+  font-weight: 700;
+  text-shadow: 0 0 20px rgba(254, 44, 85, 0.25);
+}
 .quit-game-wrap { margin-top: 1.25rem; }
 .btn-quit-game { font-size: 0.9rem; }
 
 /* Reveal */
 #screen-reveal .reveal-label { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
-#roulette-container { margin: 1rem 0; }
+#roulette-container {
+  margin: 1rem 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem;
+  border-radius: 50%;
+}
 #roulette-avatar {
-  width: 88px;
-  height: 88px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   object-fit: cover;
   border: 4px solid var(--accent);
-  box-shadow: var(--shadow-soft);
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  box-shadow:
+    0 0 0 5px var(--accent-soft),
+    0 0 32px rgba(254, 44, 85, 0.45),
+    var(--shadow-soft);
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.3s ease;
+}
+#screen-reveal.reveal-winner #roulette-avatar {
+  border-color: var(--success);
+  box-shadow:
+    0 0 0 5px rgba(37, 244, 238, 0.2),
+    0 0 36px rgba(37, 244, 238, 0.35),
+    var(--shadow-soft);
 }
 #roulette-container.roulette-tick #roulette-avatar,
 #roulette-container.roulette-tick #roulette-name { opacity: 0.85; transform: scale(0.98); }
@@ -637,6 +709,14 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 #reveal-scores { margin-top: 1rem; text-align: left; width: 100%; max-width: 280px; }
+#reveal-scores div:first-child {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom: 1px solid rgba(254, 44, 85, 0.25);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+#reveal-scores div:first-child span:last-child { color: var(--accent); font-weight: 700; }
 #reveal-scores div { display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.9rem; color: var(--text-muted); }
 #reveal-scores .pts-gained { color: var(--success); font-weight: 500; margin-left: 0.2rem; }
 #reveal-next-area { margin-top: 1.5rem; }
@@ -664,8 +744,16 @@ button.secondary:hover { background: var(--border); color: var(--text); }
   box-shadow: 0 2px 8px rgba(45,42,38,0.04);
 }
 #podium-list li:nth-child(1) {
-  background: linear-gradient(90deg, var(--accent-soft), var(--bg-card));
+  background: linear-gradient(90deg, rgba(254, 44, 85, 0.22), var(--bg-card));
+  border: 1px solid rgba(254, 44, 85, 0.45);
   border-left: 4px solid var(--accent);
+  box-shadow: 0 4px 20px rgba(254, 44, 85, 0.2);
+  font-weight: 600;
+  color: var(--text);
+}
+#podium-list li:nth-child(1) span:last-child {
+  color: var(--accent);
+  font-weight: 700;
 }
 #podium-list li:nth-child(2) {
   background: linear-gradient(90deg, rgba(126, 184, 154, 0.15), var(--bg-card));
@@ -692,6 +780,5 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 .import-hint { font-size: 0.85rem; margin: 0.5rem 0; color: var(--text-muted); }
 
 @media (max-width: 400px) {
-  #countdown-number { font-size: 4rem; }
-  #vote-buttons button { min-width: 100%; }
+  #countdown-number { font-size: 5.5rem; }
 }

@@ -60,6 +60,21 @@ textarea:focus-visible {
 }
 .screen.hidden { display: none !important; }
 
+.brand-mark {
+  font-size: clamp(2.4rem, 10vw, 3.2rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  margin: 0 0 0.35rem;
+  background: linear-gradient(135deg, #fff 30%, var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); border: 0;
+}
+
 h1 {
   font-size: 1.85rem;
   font-weight: 600;

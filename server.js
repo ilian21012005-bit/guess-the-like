@@ -76,6 +76,8 @@ socketHandlers.attach(io, {
 
 const PORT = config.PORT;
 if (process.env.NODE_ENV !== 'test') {
-  server.listen(PORT, () => console.log('Guess The Like — http://localhost:' + PORT));
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('Guess The Like — http://0.0.0.0:' + PORT);
+  });
 }
 module.exports = { app, server };

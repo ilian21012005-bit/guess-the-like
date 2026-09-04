@@ -14,6 +14,14 @@ process.env.USE_PLAYWRIGHT_DIRECT = '0';
 const request = require('supertest');
 const { app } = require('./server');
 
+describe('GET /health', () => {
+  it('répond 200 ok', async () => {
+    const res = await request(app).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.text).toBe('ok');
+  });
+});
+
 describe('GET /api/tiktok-video', () => {
   const validUrl = 'https://www.tiktok.com/@user/video/123456789';
 

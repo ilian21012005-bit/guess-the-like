@@ -64,8 +64,8 @@
     const banner = document.getElementById('reconnect-banner');
     if (banner) {
       banner.textContent = roomCode
-        ? 'Déconnecté. Recharge la page pour revenir dans la partie.'
-        : 'Reconnexion en cours…';
+        ? 'Connexion perdue. Reconnexion automatique… Si ça dure, recharge la page.'
+        : 'Serveur en cours de réveil (jusqu\'à ~1 min)…';
     }
   });
   setConnectionStatus(socket.connected);

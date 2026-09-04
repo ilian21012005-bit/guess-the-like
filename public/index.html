@@ -41,14 +41,14 @@
       </div>
       <p id="home-error" class="error"></p>
       <p class="hint">Hébergement gratuit (Render) : au réveil le serveur peut prendre 30–60 s. Garde cet onglet ouvert ; le bouton Rejoindre se réactive dès que la connexion est OK.</p>
-      <div class="rejoin-box">
-        <p class="rejoin-title">Tu as quitté par erreur ?</p>
-        <p class="rejoin-desc">Entre le code du salon et ton <strong>même pseudo</strong> pour revenir dans la partie.</p>
+      <details class="rejoin-box">
+        <summary class="rejoin-title">Tu as quitté par erreur ?</summary>
+        <p class="rejoin-desc">Même code salon + même pseudo pour revenir.</p>
         <input type="text" id="rejoin-code" placeholder="Code du salon" maxlength="8" class="code-input" />
         <input type="text" id="rejoin-username" placeholder="Ton pseudo" maxlength="50" />
         <button type="button" id="btn-rejoin">Revenir dans la partie</button>
         <p id="rejoin-error" class="error small"></p>
-      </div>
+      </details>
     </section>
 
     <!-- Lobby -->

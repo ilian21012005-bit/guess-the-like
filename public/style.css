@@ -179,7 +179,9 @@ button.secondary:hover { background: var(--border); color: var(--text); }
 .error { color: var(--error); font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2em; }
 .hint { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; max-width: 360px; }
 .rejoin-box { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); text-align: center; }
-.rejoin-box .rejoin-title { font-size: 0.95rem; color: var(--text); margin-bottom: 0.25rem; }
+.rejoin-box .rejoin-title { font-size: 0.95rem; color: var(--text); margin-bottom: 0.25rem; cursor: pointer; list-style: none; }
+.rejoin-box .rejoin-title::-webkit-details-marker { display: none; }
+.rejoin-box[open] .rejoin-title { margin-bottom: 0.5rem; }
 .rejoin-box .rejoin-desc { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; }
 .rejoin-box input { margin-bottom: 0.5rem; }
 .rejoin-box .code-input { width: 6em; text-align: center; }

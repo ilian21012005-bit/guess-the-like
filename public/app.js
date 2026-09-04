@@ -87,6 +87,8 @@
     const el = $(id);
     if (el) { el.textContent = msg || ''; el.classList.toggle('hidden', !msg); }
   };
+  const serverErrorMsg = (res) =>
+    typeof res?.error === 'string' && res.error ? res.error : 'Impossible de rejoindre. Réessaie.';
 
   function getVideoId(url) {
     const m = (url || '').match(/\/video\/(\d+)/);
@@ -122,11 +124,11 @@
   $('btn-create').addEventListener('click', () => {
     const username = $('input-username').value.trim();
     setError('home-error', '');
-    if (!username) { setError('home-error', 'Entre un pseudo'); return; }
+    if (!username) { setError('home-error', 'Choisis un pseudo.'); return; }
     const tiktokUsername = $('input-tiktok').value.trim() || username;
     const avatarUrl = getAvatarUrl();
     socket.emit('create_room', { username, tiktokUsername, avatarUrl: avatarUrl || undefined }, (res) => {
-      if (res?.error) { setError('home-error', res.error); return; }
+      if (res?.error) { setError('home-error', serverErrorMsg(res)); return; }
       roomCode = res.code;
       myPlayerId = res.playerId;
       isHost = true;
@@ -142,10 +144,10 @@
     const username = $('input-username').value.trim();
     const code = $('input-code').value.trim().toUpperCase();
     setError('home-error', '');
-    if (!username) { setError('home-error', 'Entre un pseudo'); return; }
-    if (!code) { setError('home-error', 'Entre le code du salon'); return; }
+    if (!username) { setError('home-error', 'Choisis un pseudo.'); return; }
+    if (!code) { setError('home-error', 'Entre un code salon (ex. ABC123).'); return; }
     if (!socket.connected) {
-      setError('home-error', 'Connexion au serveur en cours… Attends quelques secondes (bannière « Reconnexion » en haut) puis réessaie.');
+      setError('home-error', 'Connexion au serveur en cours… Attends que la bannière « Serveur en cours de réveil » disparaisse puis réessaie.');
       return;
     }
     const tiktokUsername = $('input-tiktok').value.trim() || username;
@@ -160,7 +162,7 @@
     socket.emit('join_room', { code, username, tiktokUsername, avatarUrl: avatarUrl || undefined }, (res) => {
       clearTimeout(timeoutId);
       if (joinBtn) { joinBtn.disabled = false; joinBtn.textContent = prevText; }
-      if (res?.error) { setError('home-error', res.error); return; }
+      if (res?.error) { setError('home-error', serverErrorMsg(res)); return; }
       roomCode = code;
       myPlayerId = res.playerId;
       isHost = false;
@@ -177,10 +179,10 @@
     const username = $('rejoin-username').value.trim();
     setError('home-error', '');
     setError('rejoin-error', '');
-    if (!code) { setError('rejoin-error', 'Entre le code du salon'); return; }
-    if (!username) { setError('rejoin-error', 'Entre ton pseudo (celui de la partie)'); return; }
+    if (!code) { setError('rejoin-error', 'Entre un code salon (ex. ABC123).'); return; }
+    if (!username) { setError('rejoin-error', 'Choisis un pseudo.'); return; }
     if (!socket.connected) {
-      setError('rejoin-error', 'Connexion en cours… Attends que la bannière disparaisse puis réessaie.');
+      setError('rejoin-error', 'Connexion en cours… Attends que la bannière « Serveur en cours de réveil » disparaisse puis réessaie.');
       return;
     }
     const btn = $('btn-rejoin');
@@ -188,7 +190,7 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Connexion…'; }
     socket.emit('rejoin_room', { code, username }, (res) => {
       if (btn) { btn.disabled = false; btn.textContent = prevText; }
-      if (res?.error) { setError('rejoin-error', res.error); return; }
+      if (res?.error) { setError('rejoin-error', serverErrorMsg(res)); return; }
       if (res.reconnected) {
         roomCode = code;
         myPlayerId = res.playerId;
